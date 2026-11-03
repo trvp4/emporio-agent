@@ -158,22 +158,24 @@
 - id: loja-horario
   category: loja
   title: Horário de funcionamento
-  why: Quarta, 10:30, loja aberta até as 18h.
+  why: >-
+    Quarta, 10:30, loja aberta até as 18h. O horário de hoje já vem no contexto do
+    prompt, então responder sem chamar store_info também é correto.
   turns:
     - user: Até que horas vocês ficam abertos hoje?
       expect:
-        tools: [store_info]
         contains_any: ["18h", "18:00", "18 h", "18 horas"]
 
 - id: loja-feriado
   category: loja
   title: Loja fechada no feriado
-  why: Sexta-feira Santa (03/04/2026); reabre sábado às 9h.
+  why: >-
+    Sexta-feira Santa (03/04/2026); reabre sábado às 9h. Também vem no contexto do
+    prompt, então a ferramenta não é exigida.
   store_now: "2026-04-03T11:00:00"
   turns:
     - user: Vocês estão abertos agora? Queria passar aí.
       expect:
-        tools: [store_info]
         contains_any:
           - [fechad, nao estamos abertos, nao abrimos]
           - [sabado, 04/04]

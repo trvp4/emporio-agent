@@ -47,7 +47,7 @@ def show_trace(turn: Turn) -> None:
     )
     console.print(
         f"[dim]{firewall} · {turn.llm_calls} chamadas ao modelo · "
-        f"{turn.input_tokens} tokens in ({turn.cache_read_tokens} do cache) / "
+        f"{turn.input_tokens} tokens in + {turn.cache_read_tokens} lidos do cache / "
         f"{turn.output_tokens} out · {turn.seconds:.1f}s[/]"
     )
 

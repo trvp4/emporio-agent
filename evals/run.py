@@ -149,8 +149,8 @@ def render_markdown(summary: dict[str, Any], results: list[dict[str, Any]]) -> s
         f"| Latência média por turno | {s['latency_mean_s']} s |",
         f"| Latência p95 por turno | {s['latency_p95_s']} s |",
         f"| Chamadas ao modelo | {s['llm_calls']} |",
-        f"| Tokens de entrada (dos quais em cache) | {s['input_tokens']} "
-        f"({s['cache_read_tokens']}) |",
+        f"| Tokens de entrada fora do cache | {s['input_tokens']} |",
+        f"| Tokens de entrada lidos do cache | {s['cache_read_tokens']} |",
         f"| Tokens de saída | {s['output_tokens']} |",
         f"| Rascunhos bloqueados pelo firewall | {s['firewall_blocks']} |",
         f"| Respostas seguras (fallback) | {s['fallbacks']} |",
