@@ -173,3 +173,11 @@ def test_more_than_12_installments_says_the_real_limit():
     sim = rules.simulate_payment(5000, requested_installments=15)
     assert sim.requested_allowed is False
     assert any("vai até 12x" in n for n in sim.notes)
+
+
+def test_closed_withdrawal_does_not_suggest_another_open_window(store):
+    # Order 7: withdrawal closed on 24/02; the defect exchange also closed (05/03). The next
+    # step must send the agent to check the defect case, not offer it as still open.
+    a = rules.assess_return(store.orders[7], "arrependimento", TODAY)
+    assert "reason=defeito" in a.next_step
+    assert "30 dias" not in a.next_step

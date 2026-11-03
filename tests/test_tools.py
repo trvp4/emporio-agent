@@ -122,6 +122,7 @@ def test_order_with_email():
     assert r["tracking_code"] == "BRJL5544332BR"
     assert r["late"] is True
     assert r["days_late"] == 25
+    assert r["items"][0]["category"] == "Ukuleles"  # so it isn't called a guitar
 
 
 def test_order_with_phone_in_any_format():
@@ -254,3 +255,10 @@ def test_city_with_state_suffix_is_campo_grande():
 def test_large_instruments_get_the_special_shipping_note():
     r = run("store_info", city="Dourados", product_ids=[139])  # acoustic drum kit
     assert any("grande porte" in n for n in r["shipping"]["notes"])
+
+
+def test_budget_with_no_results_says_what_exists():
+    r = run("search_products", category="guitarra", max_price=1000)
+    assert r["results"] == []
+    assert "R$ 5.400,00" in r["message"]  # the cheapest guitar
+    assert r["closest_outside_range"][0]["price_text"] == "R$ 5.400,00"

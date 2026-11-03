@@ -1,7 +1,7 @@
 """The agent's tools.
 
 Each tool is a plain function with a Pydantic input model. The same registry is
-used by the LLM loop (tool use), the MCP server and the tests. Tools return
+used by the LLM loop (tool use), the evaluation suite and the tests. Tools return
 JSON-serializable dicts; money comes both as a number and already formatted
 (`R$ 1.299,00`) so the model can quote it verbatim.
 """
@@ -172,14 +172,19 @@ def _verify(store: StoreData, order_id: int, email: str | None, phone: str | Non
 
 
 def _order_items(store: StoreData, order: Order) -> list[dict[str, Any]]:
-    return [
-        {
-            "product_id": it.product_id,
-            "name": store.products[it.product_id].name if it.product_id in store.products else "?",
-            "quantity": it.quantity,
-        }
-        for it in order.items
-    ]
+    """Name and category: without the category the model guessed a Kala ukulele was a guitar."""
+    items = []
+    for it in order.items:
+        product = store.products.get(it.product_id)
+        items.append(
+            {
+                "product_id": it.product_id,
+                "name": product.name if product else "?",
+                "category": store.category_name(product.category_id) if product else "?",
+                "quantity": it.quantity,
+            }
+        )
+    return items
 
 
 # --- Tool inputs -------------------------------------------------------------
@@ -221,8 +226,10 @@ class ReturnInput(OrderAuthInput):
 class SimulatePaymentInput(BaseModel):
     product_id: int | None = Field(
         None,
+        ge=1,
         description="Product to price (uses its current price and promotion). Always prefer "
-        "this for a single product.",
+        "this for a single product. Never guess it: take it from search_products or "
+        "get_product, and wait for that result before calling this tool.",
     )
     amount: float | None = Field(
         None,
@@ -298,7 +305,33 @@ def search_products(args: SearchProductsInput, store: StoreData) -> dict[str, An
             out["message"] = "No momento não temos produtos nessa categoria."
     if hidden:
         out["unavailable_hidden"] = hidden
+    if not scored and (args.min_price is not None or args.max_price is not None):
+        out.update(_outside_price_range(store, args, category, tokens, threshold))
     return out
+
+
+def _outside_price_range(
+    store: StoreData, args: SearchProductsInput, category, tokens: list[str], threshold: float
+) -> dict[str, Any]:
+    """When a budget leaves nothing, say what exists, so "no guitars" is never the answer."""
+    available = [
+        p for p in store.products.values()
+        if p.is_available
+        and (category is None or p.category_id == category.id)
+        and _match_score(store, p, tokens) >= threshold
+    ]  # fmt: skip
+    if not available:
+        return {}
+    prices = {p.id: rules.price_quote(p, store.active_promotion(p.id)).price for p in available}
+    low, high = min(prices.values()), max(prices.values())
+    target = args.max_price if args.max_price is not None else args.min_price
+    closest = sorted(available, key=lambda p: abs(prices[p.id] - target))[:3]
+    return {
+        "message": f"Nada nessa faixa de preço, mas há {len(available)} produtos disponíveis "
+        f"aqui, de {rules.brl(low)} a {rules.brl(high)}. Os mais próximos do orçamento estão "
+        "em closest_outside_range.",
+        "closest_outside_range": [_summary(store, p) for p in closest],
+    }
 
 
 def get_product(args: GetProductInput, store: StoreData) -> dict[str, Any]:
@@ -359,6 +392,10 @@ def get_product(args: GetProductInput, store: StoreData) -> dict[str, Any]:
         ]
     if not product.is_available:
         out["alternatives"] = _alternatives(store, product)
+        out["alternatives_basis"] = (
+            "Mesma categoria, à venda, ordenadas pelo preço mais próximo. Não indicam "
+            "semelhança de modelo, som ou especificação."
+        )
     return out
 
 
