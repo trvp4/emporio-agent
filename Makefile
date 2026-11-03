@@ -1,4 +1,4 @@
-.PHONY: install test lint chat app quality evals mcp
+.PHONY: install test lint chat app quality evals examples
 
 install:
 	uv sync --all-extras
@@ -7,8 +7,8 @@ test:
 	uv run pytest
 
 lint:
-	uv run ruff check src tests evals
-	uv run ruff format --check src tests evals
+	uv run ruff check src tests evals examples
+	uv run ruff format --check src tests evals examples
 
 chat:
 	uv run emporio-chat
@@ -22,5 +22,5 @@ quality:
 evals:
 	uv run python -m evals.run
 
-mcp:
-	uv run python -m emporio.interfaces.mcp_server
+examples:
+	uv run python -m examples.generate
