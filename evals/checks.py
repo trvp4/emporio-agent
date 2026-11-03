@@ -23,6 +23,8 @@ KNOWN_CHECKS = {
     "allow_fallback",
 }
 SPLIT_MONEY_RE = re.compile(r"^R\$ ?[\d.]+$")
+# Pictographs and symbol emoji; the prompt says Lia never uses them.
+EMOJI_RE = re.compile("[\U0001f300-\U0001faff☀-➿⬀-⯿️]")
 
 
 @dataclass
@@ -66,6 +68,9 @@ def check_turn(turn: Turn, expect: dict[str, Any]) -> list[CheckResult]:
                 "resposta segura no lugar da resposta" if turn.fallback else "",
             )
         )
+
+    emoji = EMOJI_RE.findall(turn.text)
+    results.append(CheckResult("no_emoji", not emoji, f"encontrado: {''.join(emoji)}"))
 
     for name in expect.get("tools", []):
         results.append(

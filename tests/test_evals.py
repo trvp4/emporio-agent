@@ -67,7 +67,13 @@ def test_text_checks_ignore_case_accents_and_currency_spacing():
 def test_fallback_fails_unless_allowed():
     turn = Turn(text="...", fallback=True)
     assert not check_turn(turn, {})[0].ok
-    assert check_turn(turn, {"allow_fallback": True}) == []
+    assert [c.name for c in check_turn(turn, {"allow_fallback": True})] == ["no_emoji"]
+
+
+def test_emoji_fails_every_turn():
+    names = {c.name: c.ok for c in check_turn(Turn(text="Claro! 🎸"), {})}
+    assert names["no_emoji"] is False
+    assert {c.name: c.ok for c in check_turn(Turn(text="Claro!"), {})}["no_emoji"] is True
 
 
 def test_grounded_answer_passes(store):
