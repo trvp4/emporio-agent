@@ -10,6 +10,7 @@ import argparse
 import json
 
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
@@ -104,7 +105,9 @@ def main() -> None:
                 continue
         if trace:
             show_trace(turn)
-        console.print(f"[bold magenta]Lia ›[/] {turn.text}\n")
+        console.print("[bold magenta]Lia ›[/]")
+        console.print(Markdown(turn.text))  # bold prices and lists, not raw "**"
+        console.print()
 
 
 if __name__ == "__main__":
