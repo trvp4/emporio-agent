@@ -190,6 +190,15 @@
         tools: [store_info]
         contains: ["R$ 35,00"]
 
+- id: loja-endereco
+  category: loja
+  title: Endereço da loja
+  why: Cenário sugerido no enunciado; o endereço vem dos dados oficiais da loja.
+  turns:
+    - user: Qual o endereço da loja?
+      expect:
+        contains: [14 de Maio, "3200"]
+
 - id: loja-frete-outra-cidade
   category: loja
   title: Frete fora de Campo Grande
@@ -244,6 +253,20 @@
       expect:
         tools: [get_order]
         contains: [estoque]
+
+- id: troca-arrependimento-sem-pedido
+  category: troca
+  title: Arrependimento sem número de pedido
+  why: >-
+    Cenário sugerido no enunciado. Sem pedido e contato não há o que consultar: a Lia
+    pede os dois antes de falar de prazos.
+  turns:
+    - user: Me arrependi da minha compra, posso devolver meu pedido?
+      expect:
+        no_tools: [escalate_to_human]
+        contains_any:
+          - [numero do pedido, numero do seu pedido]
+          - [e-mail, email, telefone]
 
 - id: troca-arrependimento-fora-do-prazo
   category: troca
