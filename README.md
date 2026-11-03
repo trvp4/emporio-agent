@@ -6,14 +6,14 @@ day: opening hours, prices, availability, payment options, order status, returns
 
 The whole design follows one rule: **the LLM handles the conversation, the code decides the
 facts.** Prices, installments, shipping fees, deadlines and order data come from tested Python
-functions that the model calls as tools. A firewall checks every number in an answer before the
-customer sees it.
+functions that the model calls as tools. Before the customer sees an answer, a firewall checks
+that every price, percentage, installment, stock count and date in it came from a trusted source.
 
 | | |
 | --- | --- |
-| Evaluation | 38 scenarios on `claude-haiku-5-5`, including stress tests (typos, other people's orders, prompt injection, discount pressure). Rule checks: 37 of 38; an LLM judge: 38 of 38, tone 4.2/5; the one disagreement was a correct answer worded in a way the rules didn't list. 2.9 s mean latency per turn, about 2 US cents per run ([report](evals/results/20261103-000659_claude-haiku-5-5.md)) |
+| Evaluation | 39 scenarios, 3 runs on `claude-haiku-5-5`: an LLM judge passed all 117, rule checks 116 (the miss was a correct answer in unlisted words). 2.8 s per turn, about 2 US cents per run ([reports](evals/results/)) |
 | Example conversations | 5 real transcripts in [`examples/`](examples/) |
-| Tests | 104 unit tests, no API key needed, run in CI on every push |
+| Tests | 106 unit tests, no API key needed, run in CI on every push |
 | Interfaces | Terminal chat and a Streamlit web chat with a trace panel |
 
 ![The web chat: Lia refuses 10x on a R$ 799,00 guitar and offers the best allowed option. The trace panel on the right shows the tools she called, their arguments and the firewall check.](docs/img/web-chat.png)
@@ -33,14 +33,14 @@ uv sync --all-extras
 cp .env.example .env        # Windows PowerShell: Copy-Item .env.example .env
 ```
 
-Open `.env` and set `ANTHROPIC_API_KEY`. The other values already have working defaults:
+Open `.env` and set `ANTHROPIC_API_KEY`. The other values in `.env.example` already work:
 
-| Variable | Default | What it does |
+| Variable | In `.env.example` | What it does |
 | --- | --- | --- |
 | `LLM_PROVIDER` | `anthropic` | `anthropic`, or `openai` for any OpenAI-compatible endpoint |
 | `LLM_MODEL` | `claude-haiku-5-5` | Model id |
 | `LLM_EFFORT` | empty | How much the model thinks: `low`, `medium`, `high` (Anthropic only; empty = model default) |
-| `STORE_NOW` | `2026-03-25T10:30:00` | The store's clock. See [Assumptions](#assumptions) |
+| `STORE_NOW` | `2026-03-25T10:30:00` | The store's clock, pinned to the dataset (see [Assumptions](#assumptions)). Without it the real clock is used, and order and return deadlines no longer match the data, so copy `.env.example` rather than only exporting the key |
 
 Then:
 
@@ -83,7 +83,7 @@ customer message
 | `src/emporio/interfaces/` | Terminal chat (`cli.py`) and web chat (`app.py`) |
 | `data/` | The original files, untouched |
 | `docs/` | `policies.md` (the PDF manual converted to Markdown) and `data_quality.md` (18 findings and decisions) |
-| `evals/` | 38 scenarios, rule-based checks, the LLM judge, runner and reports |
+| `evals/` | 39 scenarios, rule-based checks, the LLM judge, runner and reports |
 | `examples/` | The 5 example conversations and the script that generates them |
 
 The tools:
@@ -169,8 +169,8 @@ there, and a scenario checks exactly that (`seguranca-preco-dito-por-vendedor`).
   Small local models were not tried; reliable multi-step tool use was the requirement that
   mattered most.
 - **Why Haiku, measured.** The task is short answers driven by tools, at volume, where latency
-  is felt. I ran the same 28 scenarios (the suite before the stress tests were added) on Haiku
-  5.5 and on Sonnet 5.5, the next tier up:
+  is felt. I ran the same 28 scenarios (the suite before the stress tests were added), one run
+  each, on Haiku 5.5 and on Sonnet 5.5, the next tier up:
 
   | Model | Scenarios passed | Mean latency per turn | p95 | Cost of a full run* |
   | --- | --- | --- | --- | --- |
@@ -183,7 +183,7 @@ there, and a scenario checks exactly that (`seguranca-preco-dito-por-vendedor`).
 
   Sonnet's two "failures" were right: it said the Ibanez Bass 2X "saiu do nosso catálogo" and
   that there is no saxophone "por enquanto", phrasings the text checks didn't list (they were
-  widened afterwards). So on this suite both models are equally correct, and Haiku is about 1.5x
+  widened afterwards). So on this run both models were equally correct, and Haiku is about 1.5x
   faster and about 13x cheaper. If a harder case ever needs it, the same code runs another model
   with `--model` or `LLM_MODEL`.
 - **Effort.** Current Claude models think before answering. `LLM_EFFORT` sets how much; the
@@ -249,7 +249,7 @@ The data files are loaded into typed Pydantic models and never modified.
 
 ## Evaluation
 
-`evals/scenarios.yaml` has 38 short conversations across catalog, payment, store info, orders,
+`evals/scenarios.yaml` has 39 short conversations across catalog, payment, store info, orders,
 returns, security, scope, escalation and robustness. The expected values were taken from running
 the tools on the data, never from mental arithmetic. A few examples:
 
@@ -273,10 +273,12 @@ Two layers grade each scenario:
   (1 to 5)? It sees what Lia sees: the tool results, the store manual, the tool list and the
   store's clock. It never overrides the rules; the report shows both, and where they disagree.
 
-On the last run the rules passed 37 of 38 and the judge 38 of 38. The one disagreement is the
-judge doing its job: asked twice for a discount, Lia refused correctly ("não tenho como oferecer
-R$ 1.800"), in words the rule didn't list. The judge adds about US$ 0.10 per run. The suite
-itself has unit tests with a scripted model and a scripted judge.
+The agent is not deterministic, so the suite was run 3 times on the final code. The judge
+passed all 39 scenarios in all 3 runs (tone 4.1 to 4.2 out of 5). The rules passed 39, 38
+and 39: the one miss was Lia correctly refusing to stack the PIX discount on a promotion,
+with "promoções não se acumulam", a phrasing the rule didn't list. Latency was 2.8 s per
+turn on average (p95 4.1 to 5.0 s); a run costs about US$ 0.02, plus about US$ 0.10 for the
+judge. The suite itself has unit tests with a scripted model and a scripted judge.
 
 What the runs taught:
 
@@ -290,31 +292,26 @@ What the runs taught:
   When a check fails, the first question is whether it tests the outcome or one way of saying it.
   That is why the judge was added.
 - The judge's first version failed three correct answers: it didn't have the manual, so "free
-  shipping above R$ 500" looked invented. A judge needs the same knowledge as the agent it grades.
+  shipping above R$ 500" looked invented. A judge needs the same knowledge as the agent it grades
+  (now: Lia's whole prompt and tool list) and a clear bar: fail only what would mislead or
+  wrong the customer.
+- Repeating runs showed that checks requiring a specific tool fail at random: for the same
+  question the model sometimes uses `search_products`, sometimes `get_product`, with the same
+  correct answer. Those checks now test the answer, not the path.
+- The judge also caught two real slips, fixed in the tools rather than the prompt: Lia called a
+  ukulele "violão" because order items had no category, and called one bass "o mais parecido"
+  with another because alternatives didn't say they are ranked by price.
 
 ### Independent review
 
-Before the deadline I had the code reviewed by a separate agent with no context from the
-build, asked to find correctness bugs and confirm each one by running the code. It reported 12
-items, most of them confirmed by running the code. The ones fixed, each with a test:
-
-| Finding | Fix |
-| --- | --- |
-| Product lookup by name returned the wrong product as found ("Gibson SG" gave the Les Paul) | Only a complete, unambiguous match counts; otherwise candidates are returned |
-| Brand searches matched descriptions that cite another brand | Brands match the product name only; the data issue is now in the quality report |
-| "contrabaixo" (an electric bass in Brazil) went to the empty orchestral category | Electric bass unless "acústico" is said |
-| "Campo Grande - MS" was treated as another city, losing the local shipping quote | State suffixes are ignored |
-| The firewall missed "15 vezes", "1.980 reais", "9 disponíveis" and two-digit years; and took counts in tool results (days left, stock) as valid money | All checked; integers from tools are never money |
-| The firewall blocked "100% original" and "violino 3/4" | Not read as a discount or a date |
-| A payment plan was quoted for a discontinued product | Refused, pointing to the alternatives |
-| The large-instrument freight note (manual 5.2) could never appear | `store_info` takes the products being shipped |
-| A phone with a different area code passed the identity check | With the area code, all of it must match |
-| Installment minimum checked after rounding; "15x" refusal quoted the wrong reason | Checked before rounding; says the limit is 12x |
-| An answer cut off by the token limit could reach the customer | Treated like an empty answer: safe fallback |
-
-Not changed, and listed below as limitations or assumptions: customer-typed numbers are
-trusted, percentages in the manual are trusted, carts with several products are not priced,
-municipal holidays are missing.
+Passing scenarios I wrote myself only proves the paths I thought of. So before delivering, a
+separate agent with no context from the build reviewed the code, with the instruction to break
+it and confirm every finding by running the code. It found edge cases the suite didn't cover,
+for example "Gibson SG" coming back as the Les Paul, "contrabaixo" landing in the empty
+orchestral category, and "Campo Grande - MS" losing the local shipping quote. They were fixed
+with a test each, in commits `b711ea4` and `853e67e`; what was left as is appears under
+[Known limitations](#known-limitations). A second, grader-style review then caught the return
+flow suggesting a closed defect window, fixed in the tool's guidance.
 
 ## Assumptions
 
@@ -337,14 +334,14 @@ municipal holidays are missing.
 ## Known limitations
 
 - **The firewall checks numbers and dates, not meaning.** Dates written out ("28 de
-  fevereiro"), product names and what a policy allows are not checked. In example 04 (generated
-  before dates were checked), Lia mentions the 30-day defect exchange as an option before
-  checking it; one message later the tool shows it has closed and she corrects course.
+  fevereiro"), product names and what a policy allows are not checked. An earlier version of
+  example 04 showed the gap: Lia offered a defect exchange whose window had already closed,
+  with no number to catch. The fix was in the tool's guidance, not the firewall.
 - **The firewall's sources are broad.** Numbers the customer typed count as evidence (see the
   firewall section), percentages anywhere in the manual count (so "30% off" passes because the
   manual lists Black Friday discounts of "15% a 30%"), and percentages, installment counts and
   stock share one pool of numbers. The prompt rules and the judge cover what the firewall can't.
-- **The evaluation is small and self-written.** 38 scenarios by the same author as the agent are
+- **The evaluation is small and self-written.** 39 scenarios by the same author as the agent are
   a regression suite, not a benchmark. The judge is a model too, not a human label, and was not
   calibrated against human ratings.
 - **Two models, one effort level.** Haiku 5.5 and Sonnet 5.5 at their default effort; no sweep of
@@ -392,9 +389,25 @@ How I worked with it:
   tools on the dataset. Where the current models' API mattered (sampling parameters, thinking
   blocks), Claude checked Anthropic's documentation instead of relying on memory, which is how
   the `temperature` and thinking-block issues were found and fixed.
-- **Checking the output.** The evaluation suite runs the real model on 38 scenarios, graded by
-  rules and by a second model as judge. Before the deadline, a separate Claude agent with no
-  context from the build reviewed the code for bugs; most findings were fixed and the rest are
-  documented as limitations. The
-  example conversations are real transcripts, generated by a script and checked against the
-  catalog and the payment rules before committing.
+- **Checking the output.** The evaluation suite runs the real model on every scenario, graded by
+  rules and by a second model as judge. The example conversations are real transcripts,
+  generated by a script and checked against the catalog and the payment rules before committing.
+- **Reviews by agents with no context.** Twice I had a separate Claude agent, which knew nothing
+  of how the code was built, review it: once hunting for bugs (each confirmed by running the
+  code), once grading the whole submission against this brief as an Artefact reviewer would. I
+  read both reports and chose what to fix and what to document instead.
+- **Commits.** I committed at the end of each step, after the tests passed, which is why several
+  commits share a timestamp.
+
+Calls I made along the way, with the reasoning:
+
+- **The brief first, extras later.** An early plan included an MCP server and a model benchmark
+  before the README and the example conversations. Once I read the brief again, the required
+  deliverables went first, the MCP server was dropped (the brief doesn't ask for it) and the
+  benchmark became a short comparison that backs the model choice.
+- **No visual redesign.** The web chat uses Streamlit's default look. I considered polishing it
+  and decided against it: the brief says the focus is the agent working correctly, so that time
+  went into the trace panel, the stress tests and the reviews instead.
+- **Report results as they are.** When Sonnet failed scenarios with correct answers, and when the
+  judge disagreed with the rules, I kept those runs in the report and explained them, rather
+  than rerunning until the numbers looked clean.
