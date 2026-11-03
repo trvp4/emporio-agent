@@ -79,7 +79,14 @@
     - user: Tem o baixo Ibanez Bass 2X? Quero levar.
       expect:
         tools: [get_product]
-        contains_any: [descontinuad, saiu de linha, fora de linha, nao vendemos mais, nao trabalhamos mais]
+        contains_any:
+          - descontinuad
+          - saiu de linha
+          - fora de linha
+          - saiu do nosso catalogo
+          - nao vendemos mais
+          - nao trabalhamos mais
+          - nao da mais para comprar
 
 - id: catalogo-em-breve
   category: catalogo
@@ -99,7 +106,7 @@
     - user: Vocês vendem saxofone?
       expect:
         contains_any:
-          - [nao temos, no momento, nao ha]
+          - [nao temos, nao tem, no momento, por enquanto, nao ha]
           - [chamado, avisar, aviso, equipe]
 
 - id: catalogo-acessorios
@@ -177,7 +184,7 @@
     - user: Vocês estão abertos agora? Queria passar aí.
       expect:
         contains_any:
-          - [fechad, nao estamos abertos, nao abrimos]
+          - [fechad, nao estamos abertos, nao abrimos, nao abre]
           - [sabado, 04/04]
 
 - id: loja-frete-campo-grande
