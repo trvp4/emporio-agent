@@ -11,10 +11,15 @@ customer sees it.
 
 | | |
 | --- | --- |
-| Evaluation | 28 of 28 scenarios pass on `claude-haiku-5-5` (108 rule-based checks), 2.8 s mean latency per turn ([report](evals/results/20261102-232533_claude-haiku-5-5.md)) |
+| Evaluation | 28 of 28 scenarios pass on `claude-haiku-5-5` (108 rule-based checks), 2.7 s mean latency per turn, about 1.5 US cents per full run ([report](evals/results/20261102-233601_claude-haiku-5-5.md)) |
 | Example conversations | 5 real transcripts in [`examples/`](examples/) |
-| Tests | 86 unit tests, no API key needed, run in CI on every push |
+| Tests | 90 unit tests, no API key needed, run in CI on every push |
 | Interfaces | Terminal chat and a Streamlit web chat with a trace panel |
+
+![The web chat: Lia refuses 10x on a R$ 799,00 guitar and offers the best allowed option. The trace panel on the right shows the tools she called, their arguments and the firewall check.](docs/img/web-chat.png)
+
+*The web chat. On the right, the trace for the answer: the tools called with their arguments
+and results, the firewall check (16 values, all grounded), tokens and latency.*
 
 ## Quick start
 
@@ -135,9 +140,11 @@ Where the manual contradicts itself, the prompt carries an explicit interpretati
 ### Hallucination firewall
 
 Telling a model "don't invent prices" is not a guarantee. Before an answer reaches the customer,
-`agent/grounding.py` extracts every amount in R$, percentage, installment count and stock
-quantity, and checks that each one appears in a trusted source: a tool result from this
-conversation, the manual, or the customer's own messages.
+`agent/grounding.py` extracts every amount in R$, percentage, installment count, stock quantity
+and date (`dd/mm` or `dd/mm/yyyy`), and checks that each one appears in a trusted source: a tool
+result from this conversation, the manual, the store's current date and status from the prompt,
+or the customer's own messages. A date written without the year matches the same day and month
+in a source; one with the year must match exactly.
 
 - First failure: the draft is blocked and the model gets a correction listing the values with no
   source.
@@ -153,11 +160,23 @@ the model copies, it doesn't calculate.
 - **Why a hosted model.** Customer service needs reliable tool calling and good Portuguese.
   Small local models were not tried; reliable multi-step tool use was the requirement that
   mattered most.
-- **Why Haiku.** The task is short answers driven by tools, at volume, where latency is felt.
-  Haiku is the fast, low-cost tier, and the evaluation says it is enough: 28/28 scenarios, 2.8 s
-  mean per turn (4.9 s at p95), and a full run of the suite (60 model calls) costs about one US
-  cent at list prices. If a harder case ever fails, the same code runs a larger model with
-  `--model claude-sonnet-5-5` or `LLM_MODEL`.
+- **Why Haiku, measured.** The task is short answers driven by tools, at volume, where latency
+  is felt. I ran the same 28 scenarios on Haiku 5.5 and on Sonnet 5.5, the next tier up:
+
+  | Model | Scenarios passed | Mean latency per turn | p95 | Cost of a full run* |
+  | --- | --- | --- | --- | --- |
+  | `claude-haiku-5-5` | 28/28 | 2.7 s | 4.3 s | US$ 0.015 |
+  | `claude-sonnet-5-5` | 26/28 (both misses were correct answers the checks rejected) | 4.0 s | 6.1 s | US$ 0.19 |
+
+  \*List prices from Anthropic's pricing page on 2026-11-02, cache included. The Sonnet run
+  found its cache already written by an earlier run, so about US$ 0.02 of cache writes is not in
+  its figure. Reports in [`evals/results/`](evals/results/).
+
+  Sonnet's two "failures" were right: it said the Ibanez Bass 2X "saiu do nosso catálogo" and
+  that there is no saxophone "por enquanto", phrasings the text checks didn't list (they were
+  widened afterwards). So on this suite both models are equally correct, and Haiku is about 1.5x
+  faster and about 13x cheaper. If a harder case ever needs it, the same code runs another model
+  with `--model` or `LLM_MODEL`.
 - **Effort.** Current Claude models think before answering. `LLM_EFFORT` sets how much; the
   default (`medium` on Haiku 5.5) passed every scenario, so it was not raised.
 - **Provider-agnostic.** Messages are kept in one canonical format; `agent/llm.py` has an
@@ -235,10 +254,16 @@ arithmetic. A few examples:
 No LLM judge: rule-based checks are cheap, repeatable and comparable across models. The suite
 itself has unit tests with a scripted model.
 
-What the first runs taught: the first run failed everywhere because current models reject
-`temperature` (fixed in the client); the second failed one scenario that required the
-`store_info` tool for today's hours, which the model correctly answered from the prompt's
-dynamic context, so the scenario was wrong, not the agent.
+What the runs taught:
+
+- The first run failed everywhere because current models reject `temperature` (fixed in the
+  client).
+- The second failed one scenario that required the `store_info` tool for today's hours, which
+  the model correctly answered from the prompt's dynamic context: the scenario was wrong, not
+  the agent.
+- Running a second model exposed how much the text checks were tuned to the first one's
+  wording: Sonnet's three misses across two runs were all correct answers phrased differently.
+  When a check fails, the first question is whether it tests the outcome or one way of saying it.
 
 ## Assumptions
 
@@ -256,14 +281,17 @@ dynamic context, so the scenario was wrong, not the agent.
 
 ## Known limitations
 
-- **The firewall checks numbers, not everything.** Prices, percentages, installments and stock
-  are verified; dates, product names and policy wording are not. In example 04, Lia mentions the
-  30-day defect exchange as an option before checking it; one message later the tool shows it
-  has closed and she corrects course.
+- **The firewall checks numbers and dates, not meaning.** Prices, percentages, installments,
+  stock and `dd/mm` dates are verified; dates written out ("28 de fevereiro"), product names and
+  what a policy allows are not. In example 04 (generated before dates were checked), Lia mentions
+  the 30-day defect exchange as an option before checking it; one message later the tool shows
+  it has closed and she corrects course.
 - **Text checks in the evaluation are brittle by nature.** They accept a few phrasings, so a
-  correct answer worded differently can fail. 28 scenarios written by the same author as the
-  agent are a smoke test, not a benchmark. Tone and helpfulness are not graded.
-- **One model evaluated.** Only `claude-haiku-5-5`; no comparison across models or effort levels.
+  correct answer worded differently can fail, as the Sonnet runs showed. 28 scenarios written by
+  the same author as the agent are a smoke test, not a benchmark. Tone and helpfulness are not
+  graded.
+- **Two models, one effort level.** Haiku 5.5 and Sonnet 5.5 at their default effort; no sweep of
+  effort levels, and the OpenAI-compatible client was not evaluated.
 - **Identity check.** Order number + e-mail or phone is what the manual implies, but anyone who
   has both can see the order.
 - **Shipping outside Campo Grande** is not quoted (the manual says it is calculated by ZIP code at
@@ -274,9 +302,9 @@ dynamic context, so the scenario was wrong, not the agent.
 
 ## With more time
 
-- Compare models and effort levels on the same suite (the runner already takes `--model`), with
-  cost per scenario, and add an LLM judge for tone and helpfulness on top of the rule checks.
-- Extend the firewall to dates and product names.
+- Add an LLM judge for tone, helpfulness and correctness of meaning on top of the rule checks,
+  which would also make the suite less sensitive to wording; then sweep effort levels.
+- Extend the firewall to product names and written-out dates.
 - Persist conversations (SQLite or Redis) with a retention period, so a customer can come back to
   the same thread, once the LGPD side is defined.
 - Deliver tickets to the team's real channel and connect the agent to WhatsApp, where the manual

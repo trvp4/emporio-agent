@@ -163,7 +163,7 @@ def _render_turn(turn: Turn) -> None:
     for t in turn.tools:
         args = json.dumps(t.arguments, ensure_ascii=False)
         with st.expander(f"`{t.name}` · {t.ms:.0f} ms"):
-            st.code(args, language="json")
+            st.code(args, language="json", wrap_lines=True)
             st.json(t.result, expanded=False)
     _firewall_line(turn)
     st.caption(
