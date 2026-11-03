@@ -37,4 +37,4 @@ def test_answer_and_trace_with_scripted_model():
     answers = [m.markdown[0].value for m in at.chat_message if m.name == "assistant"]
     assert r"O Takamine GD20 sai por R\$ 2.199,00." in answers  # "$" escaped, not LaTeX
     assert any("get_product" in e.label for e in at.expander)
-    assert "todos com origem" in at.success[0].value
+    assert any("todos com origem" in m.value for m in at.markdown)  # firewall badge

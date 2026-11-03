@@ -19,7 +19,7 @@ that every price, percentage, installment, stock count and date in it came from 
 ![The web chat: Lia refuses 10x on a R$ 799,00 guitar and offers the best allowed option. The trace panel on the right shows the tools she called, their arguments and the firewall check.](docs/img/web-chat.png)
 
 *The web chat. On the right, the trace for the answer: the tools called with their arguments
-and results, the firewall check (16 values, all grounded), tokens and latency.*
+and results, the firewall check (12 values, all grounded), tokens and latency.*
 
 ## Quick start
 
