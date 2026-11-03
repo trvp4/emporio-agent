@@ -97,7 +97,7 @@ def _behind(turn: Turn) -> str:
     if turn.rejected_drafts:
         lines.append(f"- Firewall blocked {len(turn.rejected_drafts)} draft(s) before this answer.")
     if g is not None and g.checked == 0:
-        lines.append("- Firewall: no prices, percentages, installments or stock to check.")
+        lines.append("- Firewall: no prices, percentages, installments, stock or dates to check.")
     elif g is not None:
         status = "all grounded" if g.ok else f"unsupported: {', '.join(g.unsupported)}"
         values = "1 value" if g.checked == 1 else f"{g.checked} values"
