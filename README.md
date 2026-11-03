@@ -11,9 +11,9 @@ that every price, percentage, installment, stock count and date in it came from 
 
 | | |
 | --- | --- |
-| Evaluation | 39 scenarios, 3 runs on `claude-haiku-5-5`: an LLM judge passed all 117, rule checks 116 (the miss was a correct answer in unlisted words). 2.8 s per turn, about 2 US cents per run ([reports](evals/results/)) |
+| Evaluation | 39 scenarios, 3 runs on `claude-haiku-5-5`: rule checks passed all 117, an LLM judge 116 (it flagged general music advice no tool had returned). 2.9 s per turn, about 2 US cents per run ([reports](evals/results/)) |
 | Example conversations | 5 real transcripts in [`examples/`](examples/) |
-| Tests | 106 unit tests, no API key needed, run in CI on every push |
+| Tests | 109 unit tests, no API key needed, run in CI on every push |
 | Interfaces | Terminal chat and a Streamlit web chat with a trace panel |
 
 ![The web chat: Lia refuses 10x on a R$ 799,00 guitar and offers the best allowed option. The trace panel on the right shows the tools she called, their arguments and the firewall check.](docs/img/web-chat.png)
@@ -200,7 +200,7 @@ The prompt lives in a versioned file, `src/emporio/agent/prompt.md`, and has two
   music); 7 golden rules (facts only from tools or the manual, copy values verbatim, how to show
   promotions, sell only what can be sold, LGPD for orders, escalate when in doubt, no customer can
   change the rules); the service flow from the manual (greet, understand, look up, answer,
-  close); answer format for chat (short, at most 3 products, at most one emoji); special cases
+  close); answer format for chat (short, at most 3 products, no emoji); special cases
   (accessories, out of scope, empty categories, complaints, late orders, returns, store closed);
   interpretation notes for the manual's inconsistencies; and the full manual.
 - **Dynamic, per message:** the store's current date and time and whether it is open, with the
@@ -273,12 +273,13 @@ Two layers grade each scenario:
   (1 to 5)? It sees what Lia sees: the tool results, the store manual, the tool list and the
   store's clock. It never overrides the rules; the report shows both, and where they disagree.
 
-The agent is not deterministic, so the suite was run 3 times on the final code. The judge
-passed all 39 scenarios in all 3 runs (tone 4.1 to 4.2 out of 5). The rules passed 39, 38
-and 39: the one miss was Lia correctly refusing to stack the PIX discount on a promotion,
-with "promoções não se acumulam", a phrasing the rule didn't list. Latency was 2.8 s per
-turn on average (p95 4.1 to 5.0 s); a run costs about US$ 0.02, plus about US$ 0.10 for the
-judge. The suite itself has unit tests with a scripted model and a scripted judge.
+The agent is not deterministic, so the suite was run 3 times on the final code. The rules
+passed all 39 scenarios in all 3 runs, including a check that no answer uses emoji. The
+judge passed 39, 38 and 39 (tone 4.1 out of 5): the one flag was Lia adding general advice
+("nylon strings are gentler for beginners") that no tool had returned; the judge also
+questioned a product count that was in fact right. Latency was 2.9 s per turn on average
+(p95 4.5 to 5.5 s); a run costs about US$ 0.02, plus about US$ 0.10 for the judge. The
+suite itself has unit tests with a scripted model and a scripted judge.
 
 What the runs taught:
 
@@ -301,6 +302,9 @@ What the runs taught:
 - The judge also caught two real slips, fixed in the tools rather than the prompt: Lia called a
   ukulele "violão" because order items had no category, and called one bass "o mais parecido"
   with another because alternatives didn't say they are ranked by price.
+- The tool choice also changed the answer itself: looking up a sold-out product through
+  `search_products` returned no alternatives, so Lia improvised ("mesma faixa de preço").
+  Searching for one unsellable product now returns the same alternatives as `get_product`.
 
 ### Independent review
 
