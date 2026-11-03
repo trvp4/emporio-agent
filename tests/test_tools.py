@@ -262,3 +262,10 @@ def test_budget_with_no_results_says_what_exists():
     assert r["results"] == []
     assert "R$ 5.400,00" in r["message"]  # the cheapest guitar
     assert r["closest_outside_range"][0]["price_text"] == "R$ 5.400,00"
+
+
+def test_searching_one_unsellable_product_brings_its_alternatives():
+    r = run("search_products", query="Giannini GF-3D")
+    assert r["requested_product"]["availability"] == "esgotado no momento"
+    assert r["requested_product"]["alternatives"][0]["product_id"] == 107  # Shelby SGD-195E
+    assert "preço mais próximo" in r["requested_product"]["alternatives_basis"]

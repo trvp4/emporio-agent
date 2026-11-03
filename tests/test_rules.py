@@ -181,3 +181,8 @@ def test_closed_withdrawal_does_not_suggest_another_open_window(store):
     a = rules.assess_return(store.orders[7], "arrependimento", TODAY)
     assert "reason=defeito" in a.next_step
     assert "30 dias" not in a.next_step
+
+
+def test_closed_withdrawal_states_its_own_deadline(store):
+    a = rules.assess_return(store.orders[7], "arrependimento", TODAY)
+    assert "terminou em 24/02/2026" in a.next_step

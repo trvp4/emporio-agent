@@ -307,6 +307,15 @@ def search_products(args: SearchProductsInput, store: StoreData) -> dict[str, An
         out["unavailable_hidden"] = hidden
     if not scored and (args.min_price is not None or args.max_price is not None):
         out.update(_outside_price_range(store, args, category, tokens, threshold))
+    # Searching for one specific product that can't be sold: give the same alternatives
+    # get_product would, so the answer doesn't depend on which tool the model picked.
+    named = [p for p in store.products.values() if tokens and _name_score(p, tokens) >= 1.0]
+    if len(named) == 1 and not named[0].is_available:
+        out["requested_product"] = {
+            "name": named[0].name,
+            "availability": _availability(named[0]),
+            **_alternatives_block(store, named[0]),
+        }
     return out
 
 
@@ -391,12 +400,21 @@ def get_product(args: GetProductInput, store: StoreData) -> dict[str, Any]:
             {"name": p.description, "discount_percent": p.discount_percent} for p in expired
         ]
     if not product.is_available:
-        out["alternatives"] = _alternatives(store, product)
-        out["alternatives_basis"] = (
-            "Mesma categoria, à venda, ordenadas pelo preço mais próximo. Não indicam "
-            "semelhança de modelo, som ou especificação."
-        )
+        out.update(_alternatives_block(store, product))
     return out
+
+
+ALTERNATIVES_BASIS = (
+    "Mesma categoria, à venda, ordenadas pelo preço mais próximo. Não indicam semelhança de "
+    "modelo, som ou especificação, nem que estão na mesma faixa de preço."
+)
+
+
+def _alternatives_block(store: StoreData, product: Product) -> dict[str, Any]:
+    return {
+        "alternatives": _alternatives(store, product),
+        "alternatives_basis": ALTERNATIVES_BASIS,
+    }
 
 
 def get_order(args: OrderAuthInput, store: StoreData) -> dict[str, Any]:

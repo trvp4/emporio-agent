@@ -444,12 +444,15 @@ def assess_return(order: Order, reason: ReturnReason, today: date) -> ReturnAsse
             "intermediar se o cliente pedir."
         )
     else:
-        # No dates here on purpose: the defect deadlines differ (30 days from purchase for the
+        # Only this option's date: the defect deadlines differ (30 days from purchase for the
         # store exchange, 90 from delivery for the warranty) and must come from a defect check.
+        closed = options[0] if options else None
+        when = f" em {closed.deadline}" if closed and closed.deadline else ""
         next_step = (
-            "Prazo encerrado. Não cite outros prazos nem diga que outra opção está aberta. "
-            "Pergunte se o produto tem defeito; se tiver, chame check_return_eligibility de "
-            "novo com reason=defeito antes de falar de troca ou garantia."
+            f"Informe que o prazo de {closed.name if closed else 'devolução'} terminou{when}. "
+            "Não cite outros prazos nem diga que outra opção está aberta. Pergunte se o produto "
+            "tem defeito; se tiver, chame check_return_eligibility de novo com reason=defeito "
+            "antes de falar de troca ou garantia."
         )
 
     return ReturnAssessment(**base, options=options, conditions=conditions, next_step=next_step)
