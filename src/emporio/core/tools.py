@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from emporio.config import RUNTIME_DIR, store_now
 from emporio.core import rules
-from emporio.core.data import StoreData, digits, get_store, normalize
+from emporio.core.data import BRANDS, StoreData, brands_in, digits, get_store, normalize
 from emporio.core.models import Order, Product
 
 STATUS_PT = {
@@ -90,15 +90,35 @@ def _summary(store: StoreData, p: Product) -> dict[str, Any]:
     }
 
 
+def _contains(text: str, token: str) -> bool:
+    if token in text:
+        return True
+    # Model codes are written many ways ("GD20", "gd 20", "GF-3D"): compare them with
+    # spaces and hyphens removed. Only codes, or "'50s guitarra" would contain "sg".
+    if any(c.isdigit() for c in token) or "-" in token:
+        return token.replace("-", "") in text.replace(" ", "").replace("-", "")
+    return False
+
+
 def _match_score(store: StoreData, p: Product, tokens: list[str]) -> float:
+    """Share of the query tokens found in the product.
+
+    Brand names match the product name only: some descriptions cite another brand
+    (#135 "Music Man Bass 1X" is described as a Fender Jazz Bass).
+    """
     if not tokens:
         return 1.0
+    name = normalize(p.name)
     haystack = normalize(
         " ".join([p.name, p.description, store.category_name(p.category_id), *p.specs.values()])
     )
-    compact = haystack.replace(" ", "").replace("-", "")
-    hits = sum(1 for t in tokens if t in haystack or t.replace("-", "") in compact)
+    hits = sum(1 for t in tokens if _contains(name if t in BRANDS else haystack, t))
     return hits / len(tokens)
+
+
+def _name_score(p: Product, tokens: list[str]) -> float:
+    name = normalize(p.name)
+    return sum(1 for t in tokens if _contains(name, t)) / len(tokens) if tokens else 0.0
 
 
 def _tokens(text: str | None) -> list[str]:
@@ -140,8 +160,12 @@ def _verify(store: StoreData, order_id: int, email: str | None, phone: str | Non
     if not order or not customer:
         return None, fail
     email_ok = bool(email) and email.strip().lower() == customer.email.lower()
+    # With the area code (10+ digits) all of it must match; without it, the last 8.
     phone_digits = digits(phone or "")
-    phone_ok = len(phone_digits) >= 8 and digits(customer.phone).endswith(phone_digits[-8:])
+    if len(phone_digits) > 11 and phone_digits.startswith("55"):  # +55 country code
+        phone_digits = phone_digits[2:]
+    tail = phone_digits[-10:] if len(phone_digits) >= 10 else phone_digits[-8:]
+    phone_ok = len(phone_digits) >= 8 and digits(customer.phone).endswith(tail)
     if not (email_ok or phone_ok):
         return None, fail
     return (order, customer), None
@@ -195,8 +219,16 @@ class ReturnInput(OrderAuthInput):
 
 
 class SimulatePaymentInput(BaseModel):
-    product_id: int | None = Field(None, description="Product to price (uses its current price).")
-    amount: float | None = Field(None, description="Arbitrary amount in BRL, if no product.")
+    product_id: int | None = Field(
+        None,
+        description="Product to price (uses its current price and promotion). Always prefer "
+        "this for a single product.",
+    )
+    amount: float | None = Field(
+        None,
+        description="Arbitrary amount in BRL when there is no single product (e.g. a cart "
+        "total). The 5% PIX discount is computed on the whole amount.",
+    )
     installments: int | None = Field(
         None, description="Number of credit card installments the customer asked for."
     )
@@ -205,6 +237,9 @@ class SimulatePaymentInput(BaseModel):
 class StoreInfoInput(BaseModel):
     city: str | None = Field(None, description="Delivery city, to quote shipping.")
     order_value: float | None = Field(None, description="Order value in BRL, to quote shipping.")
+    product_ids: list[int] | None = Field(
+        None, description="Products being shipped, so large instruments get the special note."
+    )
 
 
 class EscalateInput(BaseModel):
@@ -269,12 +304,34 @@ def search_products(args: SearchProductsInput, store: StoreData) -> dict[str, An
 def get_product(args: GetProductInput, store: StoreData) -> dict[str, Any]:
     product = store.products.get(args.product_id) if args.product_id else None
     if product is None and args.name:
+        # Only an unambiguous, complete match counts as found: "Gibson SG" must not
+        # come back as the Les Paul just because "Gibson" matched.
         tokens = _tokens(args.name)
-        ranked = sorted(store.products.values(), key=lambda p: -_match_score(store, p, tokens))
-        if ranked and _match_score(store, ranked[0], tokens) >= 0.5:
-            product = ranked[0]
+        full = [p for p in store.products.values() if _match_score(store, p, tokens) >= 1.0]
+        by_name = [p for p in full if _name_score(p, tokens) >= 1.0]
+        if len(full) == 1:
+            product = full[0]
+        elif len(by_name) == 1:
+            product = by_name[0]
+        elif full:
+            options = [p for p in (by_name or full) if p.is_available][:5]
+            return {
+                "found": False,
+                "message": "Mais de um produto corresponde a esse nome. Pergunte qual é.",
+                "candidates": [_summary(store, p) for p in options],
+            }
     if product is None:
-        return {"found": False, "message": "Produto não encontrado no catálogo."}
+        out: dict[str, Any] = {"found": False, "message": "Produto não encontrado no catálogo."}
+        if args.name:
+            tokens = _tokens(args.name)
+            close = sorted(
+                (p for p in store.products.values() if p.is_available),
+                key=lambda p: -_match_score(store, p, tokens),
+            )
+            close = [p for p in close[:3] if _match_score(store, p, tokens) >= 0.5]
+            if close:
+                out["similar_available"] = [_summary(store, p) for p in close]
+        return out
 
     out: dict[str, Any] = {
         "found": True,
@@ -286,6 +343,13 @@ def get_product(args: GetProductInput, store: StoreData) -> dict[str, Any]:
         "availability": _availability(product),
         "can_be_sold": product.is_available,
     }
+    named, described = brands_in(product.name), brands_in(product.description)
+    if named and described and not named & described:
+        other = ", ".join(b.title() for b in sorted(described))
+        out["description_warning"] = (
+            f"A descrição cita outra marca ({other}). O nome do produto é o registro oficial: "
+            "não atribua a ele a marca da descrição."
+        )
     if product.status != "discontinued":
         out.update(_price_block(store, product))
     expired = [p for p in store.promotions_for(product.id) if not p.is_active]
@@ -349,6 +413,13 @@ def simulate_payment(args: SimulatePaymentInput, store: StoreData) -> dict[str, 
         product = store.products.get(args.product_id)
         if product is None:
             return {"error": "Produto não encontrado."}
+        if not product.is_available:
+            return {
+                "error": "Este produto não pode ser vendido agora, então não há condições de "
+                "pagamento para ele. Use get_product para ver as alternativas.",
+                "availability": _availability(product),
+                "can_be_sold": False,
+            }
         promo = store.active_promotion(product.id)
         amount = rules.price_quote(product, promo).price
         has_promo = promo is not None
@@ -400,7 +471,10 @@ def store_info(args: StoreInfoInput, store: StoreData) -> dict[str, Any]:
     if status.next_opening:
         out["next_opening"] = status.next_opening
     if args.city:
-        quote = rules.shipping_quote(args.city, args.order_value or 0)
+        categories = {
+            store.products[i].category_id for i in args.product_ids or [] if i in store.products
+        }
+        quote = rules.shipping_quote(args.city, args.order_value or 0, categories)
         out["shipping"] = {
             "region": "região metropolitana de Campo Grande"
             if quote.region == "metro"

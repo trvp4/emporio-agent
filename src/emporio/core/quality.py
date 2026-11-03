@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from emporio.config import DOCS_DIR, store_now
-from emporio.core.data import StoreData, digits, get_store
+from emporio.core.data import StoreData, brands_in, digits, get_store
 
 TRACKING_RE = re.compile(r"^BR[A-Z0-9]{9}BR$")
 
@@ -117,6 +117,26 @@ def run_checks(store: StoreData) -> list[Issue]:
                     "The catalog does not sell it. Orders are shown exactly as recorded.",
                 )
             )
+
+    # Products whose description cites a different brand than their name.
+    mismatched = []
+    for p in store.products.values():
+        named, described = brands_in(p.name), brands_in(p.description)
+        if named and described and not named & described:
+            other = ", ".join(b.title() for b in sorted(described))
+            mismatched.append(f"#{p.id} {p.name} (described as {other})")
+    if mismatched:
+        issues.append(
+            Issue(
+                "Products",
+                f"{len(mismatched)} products name one brand and describe another: "
+                + "; ".join(mismatched)
+                + ".",
+                "The name is the record (catalog and orders use it). Brand searches match the "
+                "name only, and the product lookup warns the agent not to repeat the "
+                "description's brand.",
+            )
+        )
 
     # Referential integrity.
     for o in store.orders.values():

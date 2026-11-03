@@ -80,6 +80,9 @@ class StoreData:
         they contain ("baixo", "viola").
         """
         tokens = normalize(query).split()
+        if any(tok.startswith("contrabaixo") for tok in tokens):
+            acoustic = any(tok.startswith("acust") for tok in tokens)
+            return self.categories.get(8 if acoustic else 2)
         for keyword, category_id in _CATEGORY_KEYWORDS:
             if any(tok.startswith(keyword) for tok in tokens):
                 return self.categories.get(category_id)
@@ -90,9 +93,22 @@ class StoreData:
         return None
 
 
-# (keyword prefix, category_id), most specific first.
+# Instrument brands found in the catalog (names and descriptions).
+BRANDS = {
+    "crafter", "fender", "giannini", "gibson", "ibanez", "kala", "kalani", "korg", "martin",
+    "nord", "ohana", "pearl", "prs", "roland", "rozini", "shelby", "tagima", "takamine", "tama",
+    "taylor", "yamaha", "music man",
+}  # fmt: skip
+
+
+def brands_in(text: str) -> set[str]:
+    words = f" {normalize(text)} "
+    return {b for b in BRANDS if f" {b} " in words}
+
+
+# (keyword prefix, category_id), most specific first. "contrabaixo" alone means an
+# electric bass in Brazil; see find_category for the acoustic (orchestral) case.
 _CATEGORY_KEYWORDS: list[tuple[str, int]] = [
-    ("contrabaixo", 8),
     ("violao", 5),
     ("violoes", 5),
     ("violino", 8),

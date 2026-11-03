@@ -162,3 +162,14 @@ def test_cancelled_order(store):
     a = rules.assess_return(store.orders[17], "defeito", TODAY)
     assert a.options == []
     assert "cancelado" in a.next_step
+
+
+def test_installment_minimum_is_checked_before_rounding():
+    assert not rules.installment_allowed(149.99, 3)  # 49,996 per installment
+    assert rules.installment_allowed(150.00, 3)
+
+
+def test_more_than_12_installments_says_the_real_limit():
+    sim = rules.simulate_payment(5000, requested_installments=15)
+    assert sim.requested_allowed is False
+    assert any("vai até 12x" in n for n in sim.notes)

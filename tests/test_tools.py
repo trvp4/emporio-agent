@@ -204,3 +204,53 @@ def test_escalation_creates_ticket_with_business_hours_deadline():
     assert r["ticket_id"].startswith("EM-260325-")
     # Wed 10:30 + 24 business hours (Wed 7.5h, Thu 9h, Fri 7.5h) -> Fri 16:30
     assert r["response_deadline"] == "27/03/2026 às 16:30"
+
+
+# --- fixes from the code review ---
+
+
+def test_name_lookup_needs_a_complete_unambiguous_match():
+    assert run("get_product", name="Gibson SG")["found"] is False  # not the Les Paul
+    assert run("get_product", name="Fender Jazz Bass")["found"] is False
+    ambiguous = run("get_product", name="Yamaha")
+    assert ambiguous["found"] is False
+    assert len(ambiguous["candidates"]) > 1
+
+
+def test_brands_match_the_product_name_not_the_description():
+    # #139 "Yamaha Kit 1" is described as a Pearl; #140 "Pearl Kit 2" is described as a Tama.
+    assert run("get_product", name="Pearl")["product_id"] == 140
+    names = [p["name"] for p in run("search_products", query="Fender", limit=20)["results"]]
+    assert names and all("Fender" in n for n in names)
+    assert "description_warning" in run("get_product", product_id=135)
+
+
+def test_contrabaixo_means_electric_bass_unless_acoustic():
+    assert run("search_products", category="contrabaixo")["category"] == "Baixos"
+    assert run("search_products", category="contrabaixo acústico")["category"] == (
+        "Cordas Orquestrais"
+    )
+
+
+def test_phone_with_area_code_must_match_it():
+    assert run("get_order", order_id=8, phone="(67) 99654-7821")["verified"] is True
+    assert run("get_order", order_id=8, phone="+55 67 99654-7821")["verified"] is True
+    assert run("get_order", order_id=8, phone="(11) 99654-7821")["verified"] is False
+
+
+def test_no_payment_plan_for_a_product_that_cannot_be_sold():
+    r = run("simulate_payment", product_id=136)  # discontinued
+    assert r["can_be_sold"] is False
+    assert "credit_options" not in r
+
+
+def test_city_with_state_suffix_is_campo_grande():
+    for city in ("Campo Grande - MS", "Campo Grande/MS", "campo grande, ms"):
+        assert run("store_info", city=city, order_value=429.90)["shipping"]["fee_text"] == (
+            "R$ 35,00"
+        )
+
+
+def test_large_instruments_get_the_special_shipping_note():
+    r = run("store_info", city="Dourados", product_ids=[139])  # acoustic drum kit
+    assert any("grande porte" in n for n in r["shipping"]["notes"])

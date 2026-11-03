@@ -9,6 +9,7 @@ Section numbers refer to docs/policies.md.
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, time, timedelta
 from typing import Literal
 
@@ -88,7 +89,8 @@ def installment_allowed(amount: float, n: int) -> bool:
         return amount > 0
     if not 1 <= n <= MAX_INSTALLMENTS:
         return False
-    return money(amount / n) >= min_installment_value(n)
+    # Unrounded: R$ 149,99 in 3x is 49,996 per installment, below the R$ 50 minimum.
+    return amount / n >= min_installment_value(n) - 1e-9
 
 
 def max_installments(amount: float) -> int:
@@ -137,9 +139,15 @@ def simulate_payment(
     if requested_installments is not None:
         allowed = installment_allowed(amount, requested_installments)
         if not allowed:
+            n = requested_installments
+            if n > MAX_INSTALLMENTS:
+                reason = f"o parcelamento vai até {MAX_INSTALLMENTS}x"
+            elif n < 1:
+                reason = "o número de parcelas precisa ser pelo menos 1"
+            else:
+                reason = f"a parcela mínima para essa faixa é {brl(min_installment_value(n))}"
             notes.append(
-                f"{requested_installments}x não é possível: a parcela mínima para essa faixa é "
-                f"{brl(min_installment_value(min(max(requested_installments, 1), 12)))}. "
+                f"{n}x não é possível: {reason}. "
                 f"O máximo para este valor é {top}x de {brl(amount / top)}."
             )
 
@@ -183,7 +191,9 @@ def shipping_quote(
             "Instrumentos de grande porte podem exigir frete especial com cotação individual."
         )
 
-    if normalize(city) in METRO_CITIES:
+    # "Campo Grande - MS", "Campo Grande/MS", "Campo Grande, MS" are all Campo Grande.
+    city_name = re.sub(r"\s*[-/,(]?\s*ms\)?$", "", normalize(city)).strip()
+    if city_name in METRO_CITIES:
         free = subtotal > METRO_FREE_SHIPPING_ABOVE
         notes.append("Entrega por motoboy próprio. A loja liga antes de entregar.")
         return ShippingQuote(

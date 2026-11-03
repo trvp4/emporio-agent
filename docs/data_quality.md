@@ -15,11 +15,12 @@ Reference date (`STORE_NOW`): **2026-03-25**. The dataset is a snapshot whose la
 | 7 | Products | #96 Giannini GF-3D Dreadnought Sunburst is active with stock 0. | Treat as temporarily unavailable and suggest similar products in stock. |
 | 8 | Products | #136 Ibanez Bass 2X Electric Bass is discontinued but has 13 units in stock. | Never offer it. Suggest an equivalent model, as the manual says (7.3). |
 | 9 | Products x Orders | #130 Kala KA-ABP-CTG Barítono Cedar is 'coming_soon' but appears in orders #3, #14. | The catalog does not sell it. Orders are shown exactly as recorded. |
-| 10 | Promotions | Only 4 of 25 promotions are active. | Only is_active = 1 counts. Expired promotions are explained, never applied (7.3). |
-| 11 | Promotions | Products #93, #96, #99 have more than one promotion record. | Never stack. If two were active at once, the biggest discount would win. |
-| 12 | Orders | Order #3: recorded total R$ 3.450,00 differs from current catalog prices R$ 3.498,00. | Prices may have changed since the purchase. Show the recorded total and never recompute it. |
-| 13 | Orders | Order #20: recorded total R$ 1.400,00 differs from current catalog prices R$ 1.488,00. | Prices may have changed since the purchase. Show the recorded total and never recompute it. |
-| 14 | Orders | Orders #1, #5, #10, #13 were paid with PIX, but their totals equal full catalog prices (no 5% discount). | Show the recorded total. Never promise a refund; escalate if the customer asks. |
-| 15 | Orders | There is no actual delivery date, only estimated_delivery. | For delivered orders, assume delivery happened on estimated_delivery. Return and warranty deadlines are counted from it. |
-| 16 | Orders | Order #8 is 'shipped' and its estimated delivery (28/02/2026) passed 25 days ago. | Report it as late and open a ticket for the team. |
-| 17 | Customers | Customers #11, #43 share the e-mail bruno.martins@jmail.com. | Identity is checked with order number + e-mail or phone, never e-mail alone. |
+| 10 | Products | 6 products name one brand and describe another: #135 Music Man Bass 1X Electric Bass (described as Fender); #137 Yamaha Bass 3X Electric Bass (described as Ibanez); #139 Bateria Acústica Yamaha Kit 1 Studio (described as Pearl); #140 Bateria Acústica Pearl Kit 2 Studio (described as Tama); #142 Teclado Sintetizador Korg Synth 1 Pro (described as Roland); #144 Teclado Sintetizador Roland Synth 3 Pro (described as Yamaha). | The name is the record (catalog and orders use it). Brand searches match the name only, and the product lookup warns the agent not to repeat the description's brand. |
+| 11 | Promotions | Only 4 of 25 promotions are active. | Only is_active = 1 counts. Expired promotions are explained, never applied (7.3). |
+| 12 | Promotions | Products #93, #96, #99 have more than one promotion record. | Never stack. If two were active at once, the biggest discount would win. |
+| 13 | Orders | Order #3: recorded total R$ 3.450,00 differs from current catalog prices R$ 3.498,00. | Prices may have changed since the purchase. Show the recorded total and never recompute it. |
+| 14 | Orders | Order #20: recorded total R$ 1.400,00 differs from current catalog prices R$ 1.488,00. | Prices may have changed since the purchase. Show the recorded total and never recompute it. |
+| 15 | Orders | Orders #1, #5, #10, #13 were paid with PIX, but their totals equal full catalog prices (no 5% discount). | Show the recorded total. Never promise a refund; escalate if the customer asks. |
+| 16 | Orders | There is no actual delivery date, only estimated_delivery. | For delivered orders, assume delivery happened on estimated_delivery. Return and warranty deadlines are counted from it. |
+| 17 | Orders | Order #8 is 'shipped' and its estimated delivery (28/02/2026) passed 25 days ago. | Report it as late and open a ticket for the team. |
+| 18 | Customers | Customers #11, #43 share the e-mail bruno.martins@jmail.com. | Identity is checked with order number + e-mail or phone, never e-mail alone. |
