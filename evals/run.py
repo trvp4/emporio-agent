@@ -40,6 +40,29 @@ SCENARIOS_PATH = EVALS_DIR / "scenarios.yaml"
 RESULTS_DIR = EVALS_DIR / "results"
 DEFAULT_STORE_NOW = "2026-03-25T10:30:00"
 
+# USD per million tokens: input, 5-minute cache write, cache read, output.
+# Source: platform.claude.com/docs/en/about-claude/pricing, checked on 2026-11-02.
+# Haiku 5.5 uses the card for prompts up to 100K tokens (every prompt here is ~10K).
+PRICES_USD_PER_MTOK: dict[str, tuple[float, float, float, float]] = {
+    "claude-haiku-5-5": (0.10, 0.125, 0.01, 0.50),
+    "claude-sonnet-5-5": (2.00, 2.50, 0.10, 10.00),
+    "claude-opus-5-5": (4.00, 5.00, 0.20, 20.00),
+}
+
+
+def cost_usd(model: str, tokens: dict[str, int]) -> float | None:
+    """Estimated cost at list prices, or None for a model without a price here."""
+    if model not in PRICES_USD_PER_MTOK:
+        return None
+    p_in, p_write, p_read, p_out = PRICES_USD_PER_MTOK[model]
+    total = (
+        tokens["input_tokens"] * p_in
+        + tokens["cache_write_tokens"] * p_write
+        + tokens["cache_read_tokens"] * p_read
+        + tokens["output_tokens"] * p_out
+    )
+    return round(total / 1_000_000, 4)
+
 
 def load_scenarios(path: Path = SCENARIOS_PATH) -> list[dict[str, Any]]:
     scenarios = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -79,6 +102,7 @@ def run_scenario(scenario: dict[str, Any], llm: LLMClient, store: StoreData) -> 
                     "input_tokens": turn.input_tokens,
                     "output_tokens": turn.output_tokens,
                     "cache_read_tokens": turn.cache_read_tokens,
+                    "cache_write_tokens": turn.cache_write_tokens,
                     "seconds": round(turn.seconds, 3),
                 }
             )
@@ -114,6 +138,10 @@ def summarize(results: list[dict[str, Any]], model: str) -> dict[str, Any]:
     for r in results:
         by_category[r["category"]].append(r["passed"])
 
+    tokens = {
+        key: sum(t.get(key, 0) for t in turns)
+        for key in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")
+    }
     return {
         "model": model,
         "run_at": datetime.now().isoformat(timespec="seconds"),
@@ -128,15 +156,15 @@ def summarize(results: list[dict[str, Any]], model: str) -> dict[str, Any]:
         "latency_mean_s": round(statistics.mean(latencies), 2) if latencies else 0.0,
         "latency_p95_s": round(_p95(latencies), 2),
         "llm_calls": sum(t["llm_calls"] for t in turns),
-        "input_tokens": sum(t["input_tokens"] for t in turns),
-        "output_tokens": sum(t["output_tokens"] for t in turns),
-        "cache_read_tokens": sum(t["cache_read_tokens"] for t in turns),
+        **tokens,
+        "cost_usd": cost_usd(model, tokens),
         "by_category": {k: {"passed": sum(v), "total": len(v)} for k, v in by_category.items()},
     }
 
 
 def render_markdown(summary: dict[str, Any], results: list[dict[str, Any]]) -> str:
     s = summary
+    cost = "-" if s["cost_usd"] is None else f"US$ {s['cost_usd']:.4f}"
     lines = [
         f"# Avaliação · {s['model']}",
         "",
@@ -151,7 +179,9 @@ def render_markdown(summary: dict[str, Any], results: list[dict[str, Any]]) -> s
         f"| Chamadas ao modelo | {s['llm_calls']} |",
         f"| Tokens de entrada fora do cache | {s['input_tokens']} |",
         f"| Tokens de entrada lidos do cache | {s['cache_read_tokens']} |",
+        f"| Tokens de entrada gravados no cache | {s['cache_write_tokens']} |",
         f"| Tokens de saída | {s['output_tokens']} |",
+        f"| Custo estimado (preço de tabela) | {cost} |",
         f"| Rascunhos bloqueados pelo firewall | {s['firewall_blocks']} |",
         f"| Respostas seguras (fallback) | {s['fallbacks']} |",
         f"| Erros de execução | {s['errors']} |",

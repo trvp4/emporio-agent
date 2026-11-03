@@ -7,7 +7,14 @@ import yaml
 from emporio.agent.llm import LLMResponse, ScriptedLLM, ToolCall
 from emporio.agent.loop import Turn
 from evals.checks import check_turn, validate_scenarios
-from evals.run import load_scenarios, render_markdown, run_scenario, select, summarize
+from evals.run import (
+    cost_usd,
+    load_scenarios,
+    render_markdown,
+    run_scenario,
+    select,
+    summarize,
+)
 
 
 def tool(tool_name, **args):
@@ -101,6 +108,17 @@ def test_runner_error_is_recorded_not_raised(store):
     result = run_scenario(scenario("loja-horario"), ScriptedLLM([]), store)
     assert not result["passed"]
     assert "ran out of steps" in result["error"]
+
+
+def test_cost_at_list_prices():
+    tokens = {
+        "input_tokens": 1_000_000,
+        "cache_write_tokens": 0,
+        "cache_read_tokens": 1_000_000,
+        "output_tokens": 1_000_000,
+    }
+    assert cost_usd("claude-haiku-5-5", tokens) == 0.61  # 0.10 + 0.01 + 0.50
+    assert cost_usd("scripted", tokens) is None
 
 
 def test_summary_and_report(store):

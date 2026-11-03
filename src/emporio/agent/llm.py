@@ -37,6 +37,7 @@ class LLMResponse:
     input_tokens: int = 0
     output_tokens: int = 0
     cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
     stop_reason: str | None = None
     # The provider's own content blocks, when they must go back unchanged (thinking).
     blocks: list[dict[str, Any]] | None = None
@@ -119,6 +120,7 @@ class AnthropicClient:
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
             cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
+            cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0) or 0,
             stop_reason=response.stop_reason,
             # Thinking blocks must go back unmodified with the tool results.
             blocks=[b.to_dict(exclude_none=True) for b in response.content],
