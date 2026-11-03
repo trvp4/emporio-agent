@@ -55,6 +55,7 @@ class Turn:
     input_tokens: int = 0
     output_tokens: int = 0
     cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
     seconds: float = 0.0
 
 
@@ -106,7 +107,7 @@ class Agent:
         if len(starts) > self.max_turns_in_memory:
             self.messages = self.messages[starts[-self.max_turns_in_memory] :]
 
-    def _evidence(self):
+    def _evidence(self, store_context: str):
         results, user_texts = [], []
         for m in self.messages:
             if m.get("_rejected"):
@@ -115,7 +116,8 @@ class Agent:
                 user_texts.append(m["content"])
             elif m["role"] == "user":
                 results += [b["content"] for b in m["content"] if b["type"] == "tool_result"]
-        return build_evidence(results, policies_text(), user_texts)
+        # The prompt's dynamic part (today's date, next opening) is a trusted source too.
+        return build_evidence(results, f"{policies_text()}\n{store_context}", user_texts)
 
     # -- one turn ---------------------------------------------------------------
 
@@ -132,6 +134,7 @@ class Agent:
             turn.input_tokens += response.input_tokens
             turn.output_tokens += response.output_tokens
             turn.cache_read_tokens += response.cache_read_tokens
+            turn.cache_write_tokens += response.cache_write_tokens
 
             if response.tool_calls:
                 self.messages.append(response.as_message())
@@ -159,7 +162,7 @@ class Agent:
                 turn.text, turn.fallback = FALLBACK, True
                 self.messages.append({"role": "assistant", "content": FALLBACK})
                 break
-            report = check_answer(draft, self._evidence())
+            report = check_answer(draft, self._evidence(system.dynamic))
             turn.grounding = report
             if report.ok:
                 self.messages.append(response.as_message())

@@ -55,5 +55,36 @@ def test_customer_words_count_as_evidence():
     assert check_answer("Em 10x não consigo, infelizmente.", ev).ok
 
 
+def test_dates_must_come_from_a_source():
+    ev = evidence_for(
+        execute(
+            "check_return_eligibility",
+            {"order_id": 7, "email": "leticia.rocha@jmail.com", "reason": "arrependimento"},
+        )
+    )
+    assert check_answer("O prazo acabou em 24/02/2026.", ev).ok
+    assert check_answer("O prazo acabou em 24/02.", ev).ok  # year left out
+    report = check_answer("O prazo vai até 03/03/2026.", ev)  # invented
+    assert report.unsupported == ["03/03/2026"]
+    assert not check_answer("O prazo acabou em 24/02/2025.", ev).ok  # wrong year
+
+
+def test_numbers_that_are_not_dates_are_ignored():
+    ev = evidence_for()
+    # A law reference and an impossible day/month are not dates.
+    assert check_answer("Conforme a Lei 8.078/90 e a escala 99/99.", ev).ok
+
+
+def test_store_context_dates_are_trusted(store):
+    from emporio.agent.llm import LLMResponse, ScriptedLLM
+    from emporio.agent.loop import Agent
+
+    # conftest pins the store clock to Wednesday 25/03/2026 10:30.
+    llm = ScriptedLLM([LLMResponse(text="Hoje, 25/03, estamos abertos até as 18h.")])
+    turn = Agent(llm, store).reply("Vocês estão abertos?")
+    assert turn.grounding.ok
+    assert turn.grounding.checked == 1
+
+
 def test_answer_without_numbers_passes():
     assert check_answer("Oi! Como posso te ajudar?", evidence_for()).ok

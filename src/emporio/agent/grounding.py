@@ -1,9 +1,10 @@
 """Hallucination firewall.
 
 Before an answer reaches the customer, every factual number in it (money,
-percentages, installment counts, stock quantities) must appear in a trusted
-source: a tool result from this conversation, the policy manual, or what the
-customer said. Anything else is treated as invented.
+percentages, installment counts, stock quantities, dates) must appear in a trusted
+source: a tool result from this conversation, the policy manual, the store's
+current date and status, or what the customer said. Anything else is treated
+as invented.
 
 This is deliberately strict and simple: the model is told to copy values from
 tools and never compute, so a number without a source is a bug, not a style issue.
@@ -21,16 +22,28 @@ MONEY_RE = re.compile(r"R\$\s*(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?
 PERCENT_RE = re.compile(r"(\d{1,3}(?:,\d+)?)\s*%")
 INSTALLMENTS_RE = re.compile(r"\b(\d{1,2})\s*x\b", re.IGNORECASE)
 STOCK_RE = re.compile(r"\b(\d+)\s+(?:unidades?|em estoque)", re.IGNORECASE)
+# dd/mm or dd/mm/yyyy, not part of a longer number such as a law ("8.078/90").
+DATE_RE = re.compile(r"(?<![\d/.])(\d{1,2})/(\d{1,2})(?:/(\d{4}))?(?![\d/])")
+
+Date = tuple[int, int, int | None]  # day, month, year (None when not written)
 
 
 def _num(text: str) -> float:
     return float(text.replace(".", "").replace(",", "."))
 
 
+def _date(m: re.Match[str]) -> Date | None:
+    day, month = int(m.group(1)), int(m.group(2))
+    if not (1 <= day <= 31 and 1 <= month <= 12):
+        return None
+    return day, month, int(m.group(3)) if m.group(3) else None
+
+
 @dataclass
 class Evidence:
     money: set[float] = field(default_factory=set)
     numbers: set[float] = field(default_factory=set)
+    dates: set[Date] = field(default_factory=set)
 
     def add_text(self, text: str) -> None:
         for m in MONEY_RE.finditer(text):
@@ -38,6 +51,17 @@ class Evidence:
         for regex in (PERCENT_RE, INSTALLMENTS_RE, STOCK_RE):
             for m in regex.finditer(text):
                 self.numbers.add(_num(m.group(1)))
+        for m in DATE_RE.finditer(text):
+            if d := _date(m):
+                self.dates.add(d)
+
+    def has_date(self, date: Date) -> bool:
+        """Same day and month; the year must match too when both sides write it."""
+        day, month, year = date
+        return any(
+            d == day and m == month and (year is None or y is None or y == year)
+            for d, m, y in self.dates
+        )
 
     def add_json(self, value: Any) -> None:
         if isinstance(value, bool) or value is None:
@@ -97,5 +121,12 @@ def check_answer(answer: str, evidence: Evidence) -> GroundingReport:
             checked += 1
             if _num(m.group(1)) not in evidence.numbers:
                 unsupported.append(m.group(0))
+
+    for m in DATE_RE.finditer(answer):
+        if (d := _date(m)) is None:
+            continue
+        checked += 1
+        if not evidence.has_date(d):
+            unsupported.append(m.group(0))
 
     return GroundingReport(ok=not unsupported, checked=checked, unsupported=unsupported)
