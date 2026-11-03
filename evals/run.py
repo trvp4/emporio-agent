@@ -295,8 +295,9 @@ def render_markdown(summary: dict[str, Any], results: list[dict[str, Any]]) -> s
 
 def save(summary: dict[str, Any], results: list[dict[str, Any]], out_dir: Path) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Process id too: runs started in parallel can finish in the same second.
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    name = f"{stamp}_{re.sub(r'[^A-Za-z0-9._-]+', '-', summary['model'])}"
+    name = f"{stamp}-{os.getpid()}_{re.sub(r'[^A-Za-z0-9._-]+', '-', summary['model'])}"
     data = {"summary": summary, "results": results}
     (out_dir / f"{name}.json").write_text(
         json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"

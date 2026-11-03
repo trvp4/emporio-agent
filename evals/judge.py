@@ -27,15 +27,18 @@ customer's own words.
 
 You get one test scenario: what it checks, then each customer message with the
 tools Lia called (arguments and results) and Lia's answer. Below are what Lia
-also knows: the tools she can call, the store's clock and status (in her prompt),
-and the full store manual. Facts from any of them are supported.
+also knows: the tools she can call, her full instructions (which include the
+store manual) and the store's clock and status. Facts from any of them are
+supported, and actions her instructions describe (for example offering a ticket
+so the team follows up or warns the customer) are legitimate.
 
 Judge two things:
 1. verdict: "pass" if Lia did what the scenario expects and every fact she stated
-   is supported by the tool results or is general store policy; "fail" if she
-   invented or contradicted a fact, broke a store rule, revealed data she should
-   not, or missed what the scenario asks for. Do not fail an answer for wording,
-   length or style alone.
+   is supported; "fail" only if the customer would be misled or wronged: an
+   invented or contradicted fact, a promise the store can't keep, a broken store
+   rule, data revealed that should not be, or what the scenario asks for missed.
+   Hints inside tool results (such as next_step) guide Lia; don't grade her
+   wording against them. Do not fail an answer for wording, length or style.
 2. tone, 1 to 5: warm, informal but professional, clear and short, like a friend
    who knows music (5) versus robotic, rude, confusing or rambling (1).
 
@@ -55,15 +58,16 @@ SCHEMA = {
 
 
 def reference() -> str:
-    """What Lia knows besides the conversation: tools, store context and the manual."""
-    from emporio.agent.prompt import dynamic_context, policies_text
+    """What Lia knows besides the conversation: tools, her instructions and the clock."""
+    from emporio.agent.prompt import dynamic_context, static_prompt
     from emporio.config import store_now
     from emporio.core.tools import TOOLS
 
     tools = "\n".join(f"- {t.name}: {t.description}" for t in TOOLS)
     return (
-        f"# Lia's tools\n\n{tools}\n\n{dynamic_context(store_now())}\n\n"
-        f"# Store manual\n\n{policies_text()}"
+        f"# Lia's tools\n\n{tools}\n\n"
+        f"# Lia's instructions (her system prompt, with the store manual)\n\n{static_prompt()}"
+        f"\n\n{dynamic_context(store_now())}"
     )
 
 
