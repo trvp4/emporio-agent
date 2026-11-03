@@ -37,8 +37,13 @@ class LLMResponse:
     input_tokens: int = 0
     output_tokens: int = 0
     cache_read_tokens: int = 0
+    stop_reason: str | None = None
+    # The provider's own content blocks, when they must go back unchanged (thinking).
+    blocks: list[dict[str, Any]] | None = None
 
     def as_message(self) -> dict[str, Any]:
+        if self.blocks is not None:
+            return {"role": "assistant", "content": self.blocks}
         blocks: list[dict[str, Any]] = []
         if self.text:
             blocks.append({"type": "text", "text": self.text})
@@ -61,18 +66,35 @@ class LLMClient(Protocol):
 
 
 class AnthropicClient:
-    def __init__(self, model: str, api_key: str | None = None, max_tokens: int = 1024):
+    """Claude through the Messages API.
+
+    Current Claude models think before answering (adaptive thinking) and reject
+    sampling parameters such as `temperature`; `effort` sets how much they think.
+    Thinking counts toward `max_tokens`, hence the generous cap.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        api_key: str | None = None,
+        max_tokens: int = 16000,
+        effort: str | None = None,
+    ):
         import anthropic
 
         self.model = model
         self.max_tokens = max_tokens
+        self.effort = effort
         self._client = anthropic.Anthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY"))
 
     def complete(self, system, messages, tools) -> LLMResponse:
+        extra: dict[str, Any] = {}
+        if self.effort:
+            extra["output_config"] = {"effort": self.effort}
         response = self._client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
-            temperature=0,
+            **extra,
             # The static part carries the whole policy manual: cache it across turns.
             system=[
                 {"type": "text", "text": system.static, "cache_control": {"type": "ephemeral"}},
@@ -97,6 +119,9 @@ class AnthropicClient:
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
             cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
+            stop_reason=response.stop_reason,
+            # Thinking blocks must go back unmodified with the tool results.
+            blocks=[b.to_dict(exclude_none=True) for b in response.content],
         )
 
 
@@ -214,7 +239,7 @@ def make_client(provider: str | None = None, model: str | None = None) -> LLMCli
             raise RuntimeError(
                 "ANTHROPIC_API_KEY is not set. Copy .env.example to .env and fill it."
             )
-        return AnthropicClient(model)
+        return AnthropicClient(model, effort=os.getenv("LLM_EFFORT") or None)
     if provider == "openai":
         return OpenAICompatClient(model)
     raise ValueError(f"Unknown LLM_PROVIDER '{provider}'. Use 'anthropic' or 'openai'.")

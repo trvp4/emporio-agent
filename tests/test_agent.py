@@ -82,6 +82,36 @@ def test_history_is_trimmed_at_turn_boundaries(store):
     assert agent.messages[0] == {"role": "user", "content": "mensagem 3"}
 
 
+def test_thinking_goes_back_within_the_turn_and_is_dropped_after(store):
+    thinking = {"type": "thinking", "thinking": "", "signature": "sig"}
+    call = {"type": "tool_use", "id": "c1", "name": "get_product", "input": {"product_id": 95}}
+    answer = {"type": "text", "text": "Sai por R$ 2.199,00."}
+    llm = ScriptedLLM(
+        [
+            LLMResponse(
+                tool_calls=[ToolCall("c1", "get_product", {"product_id": 95})],
+                blocks=[thinking, call],
+            ),
+            LLMResponse(text=answer["text"], blocks=[thinking, answer]),
+        ]
+    )
+    agent = Agent(llm, store)
+    agent.reply("Preço do GD20?")
+
+    # Second call of the turn: the tool_use turn carries its thinking block untouched.
+    assert llm.calls[1][1]["content"] == [thinking, call]
+    # After the turn, memory keeps no thinking blocks (it is edited between turns).
+    assert "thinking" not in str(agent.messages)
+    assert agent.messages[-1]["content"] == [answer]
+
+
+def test_empty_answer_falls_back(store):
+    llm = ScriptedLLM([LLMResponse(text="", stop_reason="refusal")])
+    turn = Agent(llm, store).reply("?")
+    assert turn.fallback
+    assert turn.text == FALLBACK
+
+
 def test_loop_limit(store):
     llm = ScriptedLLM([tool("store_info") for _ in range(3)])
     turn = Agent(llm, store, max_steps=3).reply("?")

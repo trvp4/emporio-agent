@@ -29,6 +29,7 @@ FALLBACK = (
     "Quero te passar essa informação certinha, então prefiro confirmar com a equipe antes. "
     "Posso abrir um chamado para eles te retornarem?"
 )
+THINKING_TYPES = {"thinking", "redacted_thinking"}
 LOOP_LIMIT = (
     "Desculpe, tive um problema para concluir sua consulta agora. Pode tentar de novo ou, se "
     "preferir, abro um chamado para a equipe te responder."
@@ -60,6 +61,19 @@ class Turn:
 def _api_view(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Messages as sent to the provider (internal flags stripped)."""
     return [{k: v for k, v in m.items() if not k.startswith("_")} for m in messages]
+
+
+def _without_thinking(message: dict[str, Any]) -> dict[str, Any]:
+    """Drop thinking blocks from a finished turn.
+
+    A thinking block is valid only while everything before it is unchanged, and
+    memory is edited between turns (rejected drafts removed, old turns trimmed).
+    Inside a turn the blocks go back untouched; once the turn ends they are dropped.
+    """
+    if message["role"] != "assistant" or isinstance(message["content"], str):
+        return message
+    blocks = [b for b in message["content"] if b["type"] not in THINKING_TYPES]
+    return {**message, "content": blocks}
 
 
 class Agent:
@@ -141,6 +155,10 @@ class Agent:
                 continue
 
             draft = response.text
+            if not draft:  # a refusal, or an answer left only in the thinking
+                turn.text, turn.fallback = FALLBACK, True
+                self.messages.append({"role": "assistant", "content": FALLBACK})
+                break
             report = check_answer(draft, self._evidence())
             turn.grounding = report
             if report.ok:
@@ -167,7 +185,7 @@ class Agent:
             turn.text, turn.fallback = LOOP_LIMIT, True
             self.messages.append({"role": "assistant", "content": LOOP_LIMIT})
 
-        self.messages = [m for m in self.messages if not m.get("_rejected")]
+        self.messages = [_without_thinking(m) for m in self.messages if not m.get("_rejected")]
         self._trim_history()
         turn.seconds = time.perf_counter() - started
         return turn
