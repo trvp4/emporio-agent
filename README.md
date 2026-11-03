@@ -15,7 +15,7 @@ facts.** Prices, installments, shipping fees, deadlines and order data come from
 functions that the model calls as tools. Before the customer sees an answer, a firewall checks
 that every price, percentage, installment, stock count and date in it came from a trusted source.
 
-![The web chat: Lia refuses 10x on a R$ 799,00 guitar and offers the best allowed option. The trace panel on the right shows the tools she called, their arguments and the firewall check.](docs/img/web-chat.png)
+![The web chat: Lia refuses 10x on a R$ 799,00 guitar and offers the best allowed option. The trace panel on the right shows the tools she called, their arguments and the firewall check.](docs/img/lia-web-chat.png)
 
 *The web chat. On the right, the trace for the answer: the tools called with their arguments
 and results, the firewall check (12 values, all grounded), tokens and latency.*
@@ -67,15 +67,14 @@ The same commands are in the `Makefile` (`make app`, `make chat`, `make test`, `
 ## How it works
 
 ```mermaid
-flowchart LR
-    C([Customer message]) --> L["LLM<br/>Claude Haiku 5.5"]
-    L -- "tool calls" --> T["7 tools in Python<br/>rules.py: the manual's rules as code<br/>data.py: the CSVs"]
-    T -- "JSON results" --> L
-    L -- "draft answer" --> F{"Hallucination firewall<br/>every number and date<br/>has a source?"}
-    F -- "yes" --> A([Answer to the customer])
-    F -- "no, 1st time" --> R["Correction:<br/>model rewrites"]
+flowchart TD
+    C([Customer message]) --> L[LLM: Claude Haiku 5.5]
+    L <-->|tool calls and JSON results| T[7 Python tools: rules.py and data.py]
+    L -->|draft answer| F{Firewall: does every number have a source?}
+    F -->|yes| A([Answer to the customer])
+    F -->|no, 1st time| R[Correction, model rewrites]
     R --> L
-    F -- "no, 2nd time" --> S([Safe answer<br/>+ offer a ticket])
+    F -->|no, 2nd time| S([Safe answer and a ticket offer])
 ```
 
 | Path | What it is |
