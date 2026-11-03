@@ -7,6 +7,7 @@ import yaml
 from emporio.agent.llm import LLMResponse, ScriptedLLM, ToolCall
 from emporio.agent.loop import Turn
 from evals.checks import check_turn, validate_scenarios
+from evals.judge import Judge
 from evals.run import (
     cost_usd,
     load_scenarios,
@@ -108,6 +109,33 @@ def test_runner_error_is_recorded_not_raised(store):
     result = run_scenario(scenario("loja-horario"), ScriptedLLM([]), store)
     assert not result["passed"]
     assert "ran out of steps" in result["error"]
+
+
+def test_judge_sees_tool_results_and_feeds_the_summary(store):
+    seen = {}
+
+    def fake_judge(system, text):
+        seen["text"] = text
+        return {"verdict": "fail", "tone": 4, "reason": "Wrong installment."}, 900, 40
+
+    llm = ScriptedLLM(
+        [
+            tool("simulate_payment", product_id=107, installments=10),
+            say("Em 10x não dá, mas consigo em até 7x de R$ 114,14 sem juros."),
+        ]
+    )
+    result = run_scenario(
+        scenario("pagamento-10x-recusado"), llm, store, Judge("claude-haiku-5-5", fake_judge)
+    )
+    # The judge gets the tool result, not only the answer.
+    assert "7x de R$ 114,14 sem juros" in seen["text"]
+    assert result["passed"]  # rules pass...
+    assert result["judge"]["verdict"] == "fail"  # ...the judge disagrees
+
+    summary = summarize([result], "scripted", "claude-haiku-5-5")
+    assert summary["judge"]["disagreements"] == ["pagamento-10x-recusado"]
+    assert summary["judge"]["tone_mean"] == 4
+    assert "Onde regras e juiz discordam" in render_markdown(summary, [result])
 
 
 def test_cost_at_list_prices():

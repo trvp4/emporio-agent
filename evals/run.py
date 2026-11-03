@@ -34,6 +34,7 @@ from emporio.agent.loop import Agent  # noqa: E402
 from emporio.core.data import StoreData, get_store  # noqa: E402
 from emporio.core.tools import TOOLS_BY_NAME  # noqa: E402
 from evals.checks import check_turn, validate_scenarios  # noqa: E402
+from evals.judge import DEFAULT_JUDGE_MODEL, Judge  # noqa: E402
 
 EVALS_DIR = Path(__file__).resolve().parent
 SCENARIOS_PATH = EVALS_DIR / "scenarios.yaml"
@@ -79,7 +80,9 @@ def select(scenarios: list[dict[str, Any]], only: str | None) -> list[dict[str, 
     return [s for s in scenarios if s["id"] in wanted or s["category"] in wanted]
 
 
-def run_scenario(scenario: dict[str, Any], llm: LLMClient, store: StoreData) -> dict[str, Any]:
+def run_scenario(
+    scenario: dict[str, Any], llm: LLMClient, store: StoreData, judge: Judge | None = None
+) -> dict[str, Any]:
     previous_now = os.environ.get("STORE_NOW")
     os.environ["STORE_NOW"] = scenario.get("store_now", DEFAULT_STORE_NOW)
     agent = Agent(llm, store)
@@ -95,7 +98,10 @@ def run_scenario(scenario: dict[str, Any], llm: LLMClient, store: StoreData) -> 
                     "answer": turn.text,
                     "passed": all(c.ok for c in checks),
                     "checks": [asdict(c) for c in checks],
-                    "tools": [{"name": t.name, "arguments": t.arguments} for t in turn.tools],
+                    "tools": [
+                        {"name": t.name, "arguments": t.arguments, "result": t.result}
+                        for t in turn.tools
+                    ],
                     "rejected_drafts": turn.rejected_drafts,
                     "fallback": turn.fallback,
                     "llm_calls": turn.llm_calls,
@@ -108,11 +114,18 @@ def run_scenario(scenario: dict[str, Any], llm: LLMClient, store: StoreData) -> 
             )
     except Exception as exc:  # one broken scenario must not stop the run
         error = f"{type(exc).__name__}: {exc}"
-    finally:
-        if previous_now is None:
-            os.environ.pop("STORE_NOW", None)
-        else:
-            os.environ["STORE_NOW"] = previous_now
+
+    verdict = None
+    if judge is not None and error is None:
+        try:  # still under the scenario's clock, which the judge also sees
+            verdict = asdict(judge.evaluate(scenario, turns))
+        except Exception as exc:  # the judge is optional: record and move on
+            verdict = {"verdict": "error", "tone": 0, "reason": f"{type(exc).__name__}: {exc}"}
+
+    if previous_now is None:
+        os.environ.pop("STORE_NOW", None)
+    else:
+        os.environ["STORE_NOW"] = previous_now
 
     return {
         "id": scenario["id"],
@@ -121,6 +134,7 @@ def run_scenario(scenario: dict[str, Any], llm: LLMClient, store: StoreData) -> 
         "passed": error is None and all(t["passed"] for t in turns),
         "error": error,
         "turns": turns,
+        "judge": verdict,
     }
 
 
@@ -130,7 +144,31 @@ def _p95(values: list[float]) -> float:
     return statistics.quantiles(values, n=20)[-1]
 
 
-def summarize(results: list[dict[str, Any]], model: str) -> dict[str, Any]:
+def _judge_summary(results: list[dict[str, Any]], judge_model: str) -> dict[str, Any]:
+    judged = [r for r in results if r.get("judge") and r["judge"]["verdict"] != "error"]
+    tokens = {
+        "input_tokens": sum(r["judge"].get("input_tokens", 0) for r in judged),
+        "output_tokens": sum(r["judge"].get("output_tokens", 0) for r in judged),
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+    }
+    return {
+        "model": judge_model,
+        "judged": len(judged),
+        "passed": sum(r["judge"]["verdict"] == "pass" for r in judged),
+        "tone_mean": round(statistics.mean(r["judge"]["tone"] for r in judged), 2)
+        if judged
+        else None,
+        "disagreements": [
+            r["id"] for r in judged if r["passed"] != (r["judge"]["verdict"] == "pass")
+        ],
+        "cost_usd": cost_usd(judge_model, tokens),
+    }
+
+
+def summarize(
+    results: list[dict[str, Any]], model: str, judge_model: str | None = None
+) -> dict[str, Any]:
     turns = [t for r in results for t in r["turns"]]
     checks = [c for t in turns for c in t["checks"]]
     latencies = [t["seconds"] for t in turns]
@@ -159,6 +197,7 @@ def summarize(results: list[dict[str, Any]], model: str) -> dict[str, Any]:
         **tokens,
         "cost_usd": cost_usd(model, tokens),
         "by_category": {k: {"passed": sum(v), "total": len(v)} for k, v in by_category.items()},
+        "judge": _judge_summary(results, judge_model) if judge_model else None,
     }
 
 
@@ -185,6 +224,17 @@ def render_markdown(summary: dict[str, Any], results: list[dict[str, Any]]) -> s
         f"| Rascunhos bloqueados pelo firewall | {s['firewall_blocks']} |",
         f"| Respostas seguras (fallback) | {s['fallbacks']} |",
         f"| Erros de execução | {s['errors']} |",
+    ]
+    j = s.get("judge")
+    if j:
+        judge_cost = "-" if j["cost_usd"] is None else f"US$ {j['cost_usd']:.4f}"
+        lines += [
+            f"| Juiz LLM (`{j['model']}`): aprovados | {j['passed']} de {j['judged']} |",
+            f"| Juiz LLM: tom médio (1 a 5) | {j['tone_mean']} |",
+            f"| Juiz LLM: discordâncias com as regras | {len(j['disagreements'])} |",
+            f"| Juiz LLM: custo estimado | {judge_cost} |",
+        ]
+    lines += [
         "",
         "## Por categoria",
         "",
@@ -196,8 +246,8 @@ def render_markdown(summary: dict[str, Any], results: list[dict[str, Any]]) -> s
         "",
         "## Cenários",
         "",
-        "| Cenário | Resultado | O que falhou |",
-        "| --- | --- | --- |",
+        "| Cenário | Regras | O que falhou |" + (" Juiz (tom) |" if j else ""),
+        "| --- | --- | --- |" + (" --- |" if j else ""),
     ]
     for r in results:
         failed = [
@@ -207,7 +257,21 @@ def render_markdown(summary: dict[str, Any], results: list[dict[str, Any]]) -> s
             failed.insert(0, f"erro: {r['error']}")
         status = "passou" if r["passed"] else "falhou"
         detail = "; ".join(failed).replace("|", "/")
-        lines.append(f"| `{r['id']}` {r['title']} | {status} | {detail} |")
+        row = f"| `{r['id']}` {r['title']} | {status} | {detail} |"
+        if j:
+            v = r.get("judge") or {}
+            row += f" {v.get('verdict', '-')} ({v.get('tone', '-')}) |"
+        lines.append(row)
+
+    if j and j["disagreements"]:
+        lines += ["", "## Onde regras e juiz discordam", ""]
+        for r in results:
+            if r["id"] in j["disagreements"]:
+                rules = "passou" if r["passed"] else "falhou"
+                lines.append(
+                    f"- `{r['id']}`: regras {rules}, juiz {r['judge']['verdict']}. "
+                    f"{r['judge']['reason']}"
+                )
 
     failures = [r for r in results if not r["passed"]]
     if failures:
@@ -249,6 +313,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", help="ids ou categorias, separados por vírgula")
     parser.add_argument("--out", type=Path, default=RESULTS_DIR, help="pasta dos resultados")
     parser.add_argument("--no-save", action="store_true", help="só mostra, não grava arquivos")
+    parser.add_argument(
+        "--judge",
+        nargs="?",
+        const=DEFAULT_JUDGE_MODEL,
+        help=f"também avalia cada cenário com um juiz LLM (padrão: {DEFAULT_JUDGE_MODEL})",
+    )
     args = parser.parse_args(argv)
 
     scenarios = select(load_scenarios(), args.only)
@@ -262,15 +332,17 @@ def main(argv: list[str] | None = None) -> int:
         print(exc, file=sys.stderr)
         return 2
     store = get_store()
+    judge = Judge(args.judge) if args.judge else None
     results = []
     started = time.perf_counter()
     for i, scenario in enumerate(scenarios, 1):
-        result = run_scenario(scenario, llm, store)
+        result = run_scenario(scenario, llm, store, judge)
         results.append(result)
         mark = "ok   " if result["passed"] else "FALHA"
-        print(f"[{i:2}/{len(scenarios)}] {mark} {scenario['id']}", flush=True)
+        verdict = f" · juiz: {result['judge']['verdict']}" if result["judge"] else ""
+        print(f"[{i:2}/{len(scenarios)}] {mark} {scenario['id']}{verdict}", flush=True)
 
-    summary = summarize(results, llm.model)
+    summary = summarize(results, llm.model, args.judge)
     print(
         f"\n{summary['scenarios_passed']}/{summary['scenarios']} cenários · "
         f"{summary['checks_passed']}/{summary['checks']} verificações · "
