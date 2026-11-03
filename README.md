@@ -1,5 +1,11 @@
 # Empório da Música · Lia, the customer service agent
 
+[![tests](https://github.com/trvp4/emporio-agent/actions/workflows/tests.yml/badge.svg)](https://github.com/trvp4/emporio-agent/actions/workflows/tests.yml)
+![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB)
+![Model: Claude Haiku 5.5](https://img.shields.io/badge/model-claude--haiku--5--5-B4462B)
+![Unit tests: 109](https://img.shields.io/badge/unit%20tests-109%20passing-2E8B57)
+![Evaluation: 117 of 117 rule checks](https://img.shields.io/badge/evaluation-117%2F117%20rule%20checks-2E8B57)
+
 Lia is a text-message customer service agent for Empório da Música, a fictional musical
 instrument store in Campo Grande/MS (Brazil). She answers what overloads the store's team every
 day: opening hours, prices, availability, payment options, order status, returns and warranty.
@@ -9,17 +15,20 @@ facts.** Prices, installments, shipping fees, deadlines and order data come from
 functions that the model calls as tools. Before the customer sees an answer, a firewall checks
 that every price, percentage, installment, stock count and date in it came from a trusted source.
 
-| | |
-| --- | --- |
-| Evaluation | 39 scenarios, 3 runs on `claude-haiku-5-5`: rule checks passed all 117, an LLM judge 116 (it flagged general music advice no tool had returned). 2.9 s per turn, about 2 US cents per run ([reports](evals/results/)) |
-| Example conversations | 5 real transcripts in [`examples/`](examples/) |
-| Tests | 109 unit tests, no API key needed, run in CI on every push |
-| Interfaces | Terminal chat and a Streamlit web chat with a trace panel |
-
 ![The web chat: Lia refuses 10x on a R$ 799,00 guitar and offers the best allowed option. The trace panel on the right shows the tools she called, their arguments and the firewall check.](docs/img/web-chat.png)
 
 *The web chat. On the right, the trace for the answer: the tools called with their arguments
 and results, the firewall check (12 values, all grounded), tokens and latency.*
+
+**At a glance**
+
+- **Evaluation:** 39 scenarios, 3 runs on `claude-haiku-5-5`. Rule checks passed all 117; an
+  LLM judge passed 116 (it flagged general music advice no tool had returned). 2.9 s per turn,
+  about 2 US cents per run ([reports](evals/results/)).
+- **Examples:** 5 real conversations in [`examples/`](examples/), from a budget search to a
+  late order escalated to the team.
+- **Tests:** 109 unit tests, no API key needed, run in CI on every push.
+- **Interfaces:** a terminal chat and a Streamlit web chat with the trace panel above.
 
 ## Quick start
 
@@ -57,23 +66,16 @@ The same commands are in the `Makefile` (`make app`, `make chat`, `make test`, `
 
 ## How it works
 
-```
-customer message
-      │
-      ▼
- ┌─────────┐   tool calls    ┌──────────────────────────────┐
- │   LLM   │ ──────────────▶ │ 7 tools (Python)             │
- │ (Claude)│ ◀────────────── │  └─ rules.py: the manual's   │
- └─────────┘  JSON results   │     numeric rules as code    │
-      │                      │  └─ data.py: the CSVs        │
-      │ draft answer         └──────────────────────────────┘
-      ▼
- ┌─────────────────────────┐   unsupported number?
- │ hallucination firewall  │ ── 1st time: correction, model rewrites
- └─────────────────────────┘ ── 2nd time: safe answer + offer a ticket
-      │ all numbers grounded
-      ▼
-   answer
+```mermaid
+flowchart LR
+    C([Customer message]) --> L["LLM<br/>Claude Haiku 5.5"]
+    L -- "tool calls" --> T["7 tools in Python<br/>rules.py: the manual's rules as code<br/>data.py: the CSVs"]
+    T -- "JSON results" --> L
+    L -- "draft answer" --> F{"Hallucination firewall<br/>every number and date<br/>has a source?"}
+    F -- "yes" --> A([Answer to the customer])
+    F -- "no, 1st time" --> R["Correction:<br/>model rewrites"]
+    R --> L
+    F -- "no, 2nd time" --> S([Safe answer<br/>+ offer a ticket])
 ```
 
 | Path | What it is |
