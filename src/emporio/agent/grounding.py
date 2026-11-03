@@ -18,12 +18,21 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
-MONEY_RE = re.compile(r"R\$\s*(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?)")
+_AMOUNT = r"(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?)"
+# "R$ 1.299,00" and "1.299 reais"
+MONEY_RES = [re.compile(r"R\$\s*" + _AMOUNT), re.compile(_AMOUNT + r"\s*reais\b", re.IGNORECASE)]
 PERCENT_RE = re.compile(r"(\d{1,3}(?:,\d+)?)\s*%")
-INSTALLMENTS_RE = re.compile(r"\b(\d{1,2})\s*x\b", re.IGNORECASE)
-STOCK_RE = re.compile(r"\b(\d+)\s+(?:unidades?|em estoque)", re.IGNORECASE)
-# dd/mm or dd/mm/yyyy, not part of a longer number such as a law ("8.078/90").
-DATE_RE = re.compile(r"(?<![\d/.])(\d{1,2})/(\d{1,2})(?:/(\d{4}))?(?![\d/])")
+# "10x" and "10 vezes"
+INSTALLMENTS_RE = re.compile(r"\b(\d{1,2})\s*(?:x|vezes)\b", re.IGNORECASE)
+STOCK_RE = re.compile(
+    r"\b(\d+)\s+(?:unidades?|em estoque|dispon[ií]ve(?:l|is)|pe[cç]as?)", re.IGNORECASE
+)
+# dd/mm, dd/mm/yy or dd/mm/yyyy, not part of a longer number such as a law ("8.078/90").
+DATE_RE = re.compile(r"(?<![\d/.])(\d{1,2})/(\d{1,2})(?:/(\d{4}|\d{2}))?(?![\d/])")
+# "violão 3/4", "tamanho 1/2": instrument sizes, not dates.
+SIZE_BEFORE_RE = re.compile(
+    r"(tamanho|viol[aã]o|violino|violoncelo|cello|baixo|guitarra)\s*$", re.IGNORECASE
+)
 
 Date = tuple[int, int, int | None]  # day, month, year (None when not written)
 
@@ -36,7 +45,12 @@ def _date(m: re.Match[str]) -> Date | None:
     day, month = int(m.group(1)), int(m.group(2))
     if not (1 <= day <= 31 and 1 <= month <= 12):
         return None
-    return day, month, int(m.group(3)) if m.group(3) else None
+    if SIZE_BEFORE_RE.search(m.string[max(0, m.start() - 12) : m.start()]):
+        return None
+    year = m.group(3)
+    if year is None:
+        return day, month, None
+    return day, month, int(year) + 2000 if len(year) == 2 else int(year)
 
 
 @dataclass
@@ -46,8 +60,9 @@ class Evidence:
     dates: set[Date] = field(default_factory=set)
 
     def add_text(self, text: str) -> None:
-        for m in MONEY_RE.finditer(text):
-            self.money.add(round(_num(m.group(1)), 2))
+        for regex in MONEY_RES:
+            for m in regex.finditer(text):
+                self.money.add(round(_num(m.group(1)), 2))
         for regex in (PERCENT_RE, INSTALLMENTS_RE, STOCK_RE):
             for m in regex.finditer(text):
                 self.numbers.add(_num(m.group(1)))
@@ -66,8 +81,10 @@ class Evidence:
     def add_json(self, value: Any) -> None:
         if isinstance(value, bool) or value is None:
             return
-        if isinstance(value, int | float):
-            self.money.add(round(float(value), 2))
+        if isinstance(value, float):  # prices come as floats
+            self.money.add(round(value, 2))
+            self.numbers.add(value)
+        elif isinstance(value, int):  # ids, stock, days left: counts, never money
             self.numbers.add(float(value))
         elif isinstance(value, str):
             self.add_text(value)
@@ -111,13 +128,16 @@ def check_answer(answer: str, evidence: Evidence) -> GroundingReport:
     unsupported: list[str] = []
     checked = 0
 
-    for m in MONEY_RE.finditer(answer):
-        checked += 1
-        if not evidence.has_money(round(_num(m.group(1)), 2)):
-            unsupported.append(m.group(0))
+    for regex in MONEY_RES:
+        for m in regex.finditer(answer):
+            checked += 1
+            if not evidence.has_money(round(_num(m.group(1)), 2)):
+                unsupported.append(m.group(0))
 
     for regex in (PERCENT_RE, INSTALLMENTS_RE, STOCK_RE):
         for m in regex.finditer(answer):
+            if regex is PERCENT_RE and _num(m.group(1)) == 100:
+                continue  # "100% original", "100% Birch": not a discount
             checked += 1
             if _num(m.group(1)) not in evidence.numbers:
                 unsupported.append(m.group(0))

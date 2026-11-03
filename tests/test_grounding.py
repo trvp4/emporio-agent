@@ -88,3 +88,28 @@ def test_store_context_dates_are_trusted(store):
 
 def test_answer_without_numbers_passes():
     assert check_answer("Oi! Como posso te ajudar?", evidence_for()).ok
+
+
+def test_other_ways_of_writing_numbers_are_checked():
+    ev = evidence_for(execute("get_product", {"product_id": 95}))  # R$ 2.199,00, stock 5
+    assert not check_answer("Dá pra fazer em 18 vezes.", ev).ok
+    assert not check_answer("Fica 1.980 reais no PIX.", ev).ok
+    assert not check_answer("Temos 9 disponíveis.", ev).ok
+    assert check_answer("Temos 5 disponíveis, por 2.199,00 reais.", ev).ok
+    assert not check_answer("Vale até 02/04/26.", ev).ok
+
+
+def test_counts_in_tool_results_are_not_money():
+    ev = evidence_for(
+        execute(
+            "check_return_eligibility",
+            {"order_id": 7, "email": "leticia.rocha@jmail.com", "reason": "defeito"},
+        )
+    )  # days_left = 54
+    assert check_answer("Faltam 54 dias.", ev).ok
+    assert not check_answer("O reembolso é de R$ 54.", ev).ok
+
+
+def test_sizes_and_100_percent_are_not_flagged():
+    ev = evidence_for()
+    assert check_answer("Temos violino tamanho 3/4 e é 100% original.", ev).ok

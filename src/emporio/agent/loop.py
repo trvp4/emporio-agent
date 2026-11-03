@@ -158,7 +158,8 @@ class Agent:
                 continue
 
             draft = response.text
-            if not draft:  # a refusal, or an answer left only in the thinking
+            # A refusal, an answer left only in the thinking, or one cut off by max_tokens.
+            if not draft or response.stop_reason == "max_tokens":
                 turn.text, turn.fallback = FALLBACK, True
                 self.messages.append({"role": "assistant", "content": FALLBACK})
                 break

@@ -112,6 +112,12 @@ def test_empty_answer_falls_back(store):
     assert turn.text == FALLBACK
 
 
+def test_answer_cut_off_by_max_tokens_falls_back(store):
+    llm = ScriptedLLM([LLMResponse(text="O Takamine custa", stop_reason="max_tokens")])
+    turn = Agent(llm, store).reply("Quanto custa o GD20?")
+    assert turn.fallback
+
+
 def test_loop_limit(store):
     llm = ScriptedLLM([tool("store_info") for _ in range(3)])
     turn = Agent(llm, store, max_steps=3).reply("?")
